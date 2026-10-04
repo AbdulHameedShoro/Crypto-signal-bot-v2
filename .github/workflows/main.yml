@@ -14,16 +14,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-                - name: Run bot
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
         env:
-          DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py
-        
-        
-        
-
-      
-
-
