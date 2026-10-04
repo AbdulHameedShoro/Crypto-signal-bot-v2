@@ -1,7 +1,8 @@
 name: Crypto Signal Bot
 
-on:
+"on":
   workflow_dispatch:
+
 
 jobs:
   test:
