@@ -3,10 +3,10 @@ name: Crypto Signal Bot
 "on":
   workflow_dispatch:
 
-
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -15,9 +15,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-  run: pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-- name: Run bot
-  env:
-    DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
-  run: python main.py
+      - name: Run bot
+        env:
+          DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
+        run: python main.py
