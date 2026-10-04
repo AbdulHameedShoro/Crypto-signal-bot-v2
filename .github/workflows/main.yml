@@ -16,5 +16,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run bot
+            - name: Run bot
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py
+
+
