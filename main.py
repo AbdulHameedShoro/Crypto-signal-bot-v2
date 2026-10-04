@@ -18,6 +18,7 @@ BINANCE_URL = "https://data-api.binance.vision"
 
 def get_klines(symbol, interval="15m", limit=100):
     url = f"{BINANCE_URL}/api/v3/klines"
+
     params = {
         "symbol": symbol,
         "interval": interval,
@@ -97,6 +98,28 @@ def get_signal(symbol):
     return price, ema20, ema50, rsi, trend, signal
 
 
+def calculate_trade_levels(price, signal):
+    if signal == "🟢 BUY":
+        stop_loss = price * 0.985
+        risk = price - stop_loss
+
+        tp1 = price + (risk * 1.5)
+        tp2 = price + (risk * 2.5)
+
+        return stop_loss, tp1, tp2
+
+    elif signal == "🔴 SELL":
+        stop_loss = price * 1.015
+        risk = stop_loss - price
+
+        tp1 = price - (risk * 1.5)
+        tp2 = price - (risk * 2.5)
+
+        return stop_loss, tp1, tp2
+
+    return None, None, None
+
+
 def send_discord(message):
     if not WEBHOOK_URL:
         print("Discord webhook secret is not configured.")
@@ -118,15 +141,30 @@ def main():
         try:
             price, ema20, ema50, rsi, trend, signal = get_signal(symbol)
 
+            stop_loss, tp1, tp2 = calculate_trade_levels(
+                price,
+                signal
+            )
+
             message += (
                 f"**{symbol}**\n"
-                f"💰 Price: {price:.6f}\n"
+                f"💰 Entry: {price:.6f}\n"
                 f"📈 Trend: {trend}\n"
                 f"📊 RSI: {rsi:.2f}\n"
                 f"〽️ EMA20: {ema20:.6f}\n"
                 f"〽️ EMA50: {ema50:.6f}\n"
-                f"🎯 Signal: {signal}\n\n"
+                f"🎯 Signal: {signal}\n"
             )
+
+            if signal != "🟡 WAIT":
+                message += (
+                    f"🛑 Stop Loss: {stop_loss:.6f}\n"
+                    f"🎯 TP1: {tp1:.6f}\n"
+                    f"🎯 TP2: {tp2:.6f}\n"
+                    f"⚖️ Risk/Reward: 1:{2.5 if signal else 0}\n"
+                )
+
+            message += "\n"
 
         except Exception as e:
             message += f"❌ {symbol}: Data error\n"
