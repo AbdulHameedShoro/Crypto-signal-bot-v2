@@ -14,7 +14,7 @@ COINS = [
 ]
 
 def get_price(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+    url = f"https://data-api.binance.vision/api/v3/ticker/price?symbol={symbol}"
     response = requests.get(url, timeout=10)
     response.raise_for_status()
     return float(response.json()["price"])
