@@ -11,7 +11,7 @@ COINS = [
     "XRPUSDT",
     "DOGEUSDT",
     "ZENUSDT",
-]
+    "ZECUSDT",]
 
 BINANCE_URL = "https://data-api.binance.vision"
 
