@@ -79,10 +79,10 @@ def get_signal(symbol):
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
 
-    if price > ema20 and ema20 > ema50 and rsi >= 55 and rsi < 70:
+    if price > ema20 and ema20 > ema50 and rsi >= 52 and rsi < 70:
         signal = "🟢 BUY"
 
-    elif price < ema20 and ema20 < ema50 and rsi <= 45 and rsi > 30:
+    elif price < ema20 and ema20 < ema50 and rsi <= 48 and rsi > 30:
         signal = "🔴 SELL"
 
     else:
