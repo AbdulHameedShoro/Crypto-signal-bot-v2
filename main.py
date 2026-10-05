@@ -79,10 +79,13 @@ def get_signal(symbol):
 
     price = closes[-1]
 
-    ema20 = calculate_ema(closes, 20)
-    ema50 = calculate_ema(closes, 50)
-    rsi = calculate_rsi(closes)
+ema20 = calculate_ema(closes, 20)
+ema50 = calculate_ema(closes, 50)
+rsi = calculate_rsi(closes)
 
+distance_from_ema20 = abs(price - ema20) / ema20 * 100
+late_buy = price > ema20 and distance_from_ema20 > 0.8
+late_sell = price < ema20 and distance_from_ema20 > 0.8
     # Previous values for trend strength
     ema20_prev = calculate_ema(closes[:-3], 20)
     ema50_prev = calculate_ema(closes[:-3], 50)
@@ -157,12 +160,12 @@ def get_signal(symbol):
         sell_score += 10
 
     # Strong signal threshold
-    if buy_score >= 75 and buy_score > sell_score:
-        signal = "🟢 BUY"
-    elif sell_score >= 75 and sell_score > buy_score:
-        signal = "🔴 SELL"
-    else:
-        signal = "🟡 WAIT"
+    if buy_score >= 75 and buy_score > sell_score and not late_buy:
+    signal = "🟢 BUY"
+elif sell_score >= 75 and sell_score > buy_score and not late_sell:
+    signal = "🔴 SELL"
+else:
+    signal = "🟡 WAIT"
 
     return price, ema20, ema50, rsi, trend, signal
 
