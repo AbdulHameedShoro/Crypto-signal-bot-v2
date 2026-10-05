@@ -70,33 +70,101 @@ def calculate_rsi(values, period=14):
 
 
 def get_signal(symbol):
-    candles = get_klines(symbol)
+    candles = get_klines(symbol, interval="15m", limit=150)
 
     closes = [float(candle[4]) for candle in candles]
+    highs = [float(candle[2]) for candle in candles]
+    lows = [float(candle[3]) for candle in candles]
+    volumes = [float(candle[5]) for candle in candles]
 
     price = closes[-1]
+
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
 
-    if price > ema20 and ema20 > ema50 and rsi >= 52 and rsi < 70:
-        signal = "🟢 BUY"
+    # Previous values for trend strength
+    ema20_prev = calculate_ema(closes[:-3], 20)
+    ema50_prev = calculate_ema(closes[:-3], 50)
 
-    elif price < ema20 and ema20 < ema50 and rsi <= 48 and rsi > 30:
-        signal = "🔴 SELL"
+    avg_volume = sum(volumes[-21:-1]) / 20
+    current_volume = volumes[-1]
 
-    else:
-        signal = "🟡 WAIT"
+    volume_strong = current_volume >= avg_volume * 1.15
 
-    if price > ema20 and ema20 > ema50:
+    # Price momentum
+    price_3_candles_ago = closes[-4]
+
+    bullish_momentum = price > price_3_candles_ago
+    bearish_momentum = price < price_3_candles_ago
+
+    # EMA direction
+    ema_bullish = ema20 > ema20_prev
+    ema_bearish = ema20 < ema20_prev
+
+    # Trend
+    if price > ema20 and ema20 > ema50 and ema_bullish:
+        trend = "Strong Bullish"
+    elif price < ema20 and ema20 < ema50 and ema_bearish:
+        trend = "Strong Bearish"
+    elif price > ema20 and ema20 > ema50:
         trend = "Bullish"
     elif price < ema20 and ema20 < ema50:
         trend = "Bearish"
     else:
         trend = "Neutral"
 
-    return price, ema20, ema50, rsi, trend, signal
+    # Signal scoring
+    buy_score = 0
+    sell_score = 0
 
+    # BUY conditions
+    if price > ema20:
+        buy_score += 20
+
+    if ema20 > ema50:
+        buy_score += 20
+
+    if ema_bullish:
+        buy_score += 15
+
+    if 52 <= rsi <= 68:
+        buy_score += 20
+
+    if bullish_momentum:
+        buy_score += 15
+
+    if volume_strong:
+        buy_score += 10
+
+    # SELL conditions
+    if price < ema20:
+        sell_score += 20
+
+    if ema20 < ema50:
+        sell_score += 20
+
+    if ema_bearish:
+        sell_score += 15
+
+    if 32 <= rsi <= 48:
+        sell_score += 20
+
+    if bearish_momentum:
+        sell_score += 15
+
+    if volume_strong:
+        sell_score += 10
+
+    # Strong signal threshold
+    if buy_score >= 75 and buy_score > sell_score:
+        signal = "🟢 BUY"
+    elif sell_score >= 75 and sell_score > buy_score:
+        signal = "🔴 SELL"
+    else:
+        signal = "🟡 WAIT"
+
+    return price, ema20, ema50, rsi, trend, signal
 
 def calculate_trade_levels(price, signal):
     if signal == "🟢 BUY":
