@@ -73,20 +73,16 @@ def get_signal(symbol):
     candles = get_klines(symbol, interval="15m", limit=150)
 
     closes = [float(candle[4]) for candle in candles]
-    highs = [float(candle[2]) for candle in candles]
-    lows = [float(candle[3]) for candle in candles]
     volumes = [float(candle[5]) for candle in candles]
 
     price = closes[-1]
 
-ema20 = calculate_ema(closes, 20)
-ema50 = calculate_ema(closes, 50)
-rsi = calculate_rsi(closes)
+    ema20 = calculate_ema(closes, 20)
+    ema50 = calculate_ema(closes, 50)
+    rsi = calculate_rsi(closes)
 
-distance_from_ema20 = abs(price - ema20) / ema20 * 100
-late_buy = price > ema20 and distance_from_ema20 > 0.8
-late_sell = price < ema20 and distance_from_ema20 > 0.8
-    # Previous values for trend strength
+    distance_from_ema20 = abs(price - ema20) / ema20 * 100
+
     ema20_prev = calculate_ema(closes[:-3], 20)
     ema50_prev = calculate_ema(closes[:-3], 50)
 
@@ -95,17 +91,17 @@ late_sell = price < ema20 and distance_from_ema20 > 0.8
 
     volume_strong = current_volume >= avg_volume * 1.15
 
-    # Price momentum
     price_3_candles_ago = closes[-4]
 
     bullish_momentum = price > price_3_candles_ago
     bearish_momentum = price < price_3_candles_ago
 
-    # EMA direction
     ema_bullish = ema20 > ema20_prev
     ema_bearish = ema20 < ema20_prev
 
-    # Trend
+    late_buy = price > ema20 and distance_from_ema20 > 0.8
+    late_sell = price < ema20 and distance_from_ema20 > 0.8
+
     if price > ema20 and ema20 > ema50 and ema_bullish:
         trend = "Strong Bullish"
     elif price < ema20 and ema20 < ema50 and ema_bearish:
@@ -117,11 +113,9 @@ late_sell = price < ema20 and distance_from_ema20 > 0.8
     else:
         trend = "Neutral"
 
-    # Signal scoring
     buy_score = 0
     sell_score = 0
 
-    # BUY conditions
     if price > ema20:
         buy_score += 20
 
@@ -140,7 +134,6 @@ late_sell = price < ema20 and distance_from_ema20 > 0.8
     if volume_strong:
         buy_score += 10
 
-    # SELL conditions
     if price < ema20:
         sell_score += 20
 
@@ -159,13 +152,12 @@ late_sell = price < ema20 and distance_from_ema20 > 0.8
     if volume_strong:
         sell_score += 10
 
-    # Strong signal threshold
     if buy_score >= 75 and buy_score > sell_score and not late_buy:
-    signal = "🟢 BUY"
-elif sell_score >= 75 and sell_score > buy_score and not late_sell:
-    signal = "🔴 SELL"
-else:
-    signal = "🟡 WAIT"
+        signal = "🟢 BUY"
+    elif sell_score >= 75 and sell_score > buy_score and not late_sell:
+        signal = "🔴 SELL"
+    else:
+        signal = "🟡 WAIT"
 
     return price, ema20, ema50, rsi, trend, signal
 
