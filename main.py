@@ -205,7 +205,7 @@ def send_discord(message):
     )
 
     response.raise_for_status()
-
+    print("✅ Discord message sent successfully.")
 
 def main():
     message = "📊 **Crypto Signal Bot**\n\n"
