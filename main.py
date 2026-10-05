@@ -115,6 +115,8 @@ def get_signal(symbol):
 
     buy_score = 0
     sell_score = 0
+    signal_score = 0
+    signal_type = "WAIT"
 
     if price > ema20:
         buy_score += 20
@@ -151,15 +153,23 @@ def get_signal(symbol):
 
     if volume_strong:
         sell_score += 10
-
-    if buy_score >= 75 and buy_score > sell_score and not late_buy:
+        
+    if buy_score >= 85 and buy_score > sell_score and not late_buy:
         signal = "🟢 BUY"
-    elif sell_score >= 75 and sell_score > buy_score and not late_sell:
+        signal_score = buy_score
+        signal_type = "BUY"
+
+    elif sell_score >= 85 and sell_score > buy_score and not late_sell:
         signal = "🔴 SELL"
+        signal_score = sell_score
+        signal_type = "SELL"
+
     else:
         signal = "🟡 WAIT"
+        signal_score = max(buy_score, sell_score)
+        signal_type = "WAIT"
 
-    return price, ema20, ema50, rsi, trend, signal
+    return price, ema20, ema50, rsi, trend, signal, signal_score
 
 def calculate_trade_levels(price, signal):
     if signal == "🟢 BUY":
@@ -202,8 +212,7 @@ def main():
 
     for symbol in COINS:
         try:
-            price, ema20, ema50, rsi, trend, signal = get_signal(symbol)
-
+            price, ema20, ema50, rsi, trend, signal, signal_score = get_signal(symbol)
             stop_loss, tp1, tp2 = calculate_trade_levels(
                 price,
                 signal
@@ -217,6 +226,7 @@ def main():
                 f"〽️ EMA20: {ema20:.6f}\n"
                 f"〽️ EMA50: {ema50:.6f}\n"
                 f"🎯 Signal: {signal}\n"
+                f"💪 Signal Score: {signal_score}/100\n"
             )
 
             if signal != "🟡 WAIT":
