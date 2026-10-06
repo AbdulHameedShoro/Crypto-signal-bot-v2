@@ -597,7 +597,8 @@ def send_discord(message):
         json={"content": message},
         timeout=10
     )
-
+    print("Discord response:", response.status_code, response.text)
+    
     response.raise_for_status()
 
     print("✅ Discord message sent successfully.")
