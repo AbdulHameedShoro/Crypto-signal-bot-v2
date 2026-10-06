@@ -123,11 +123,14 @@ def calculate_adx(highs, lows, closes, period=14):
 def get_signal(symbol):
     candles = get_klines(symbol, interval="15m", limit=150)
 
-    closes = [float(candle[4]) for candle in candles]
-    highs = [float(candle[2]) for candle in candles]
-    lows = [float(candle[3]) for candle in candles]
-    volumes = [float(candle[5]) for candle in candles]
-    price = closes[-2]
+    closed_candles = candles[:-1]
+
+    closes = [float(candle[4]) for candle in closed_candles]
+    highs = [float(candle[2]) for candle in closed_candles]
+    lows = [float(candle[3]) for candle in closed_candles]
+    volumes = [float(candle[5]) for candle in closed_candles]
+
+    price = closes[-1]
 
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
@@ -218,7 +221,7 @@ def get_signal(symbol):
         signal_score = buy_score
         signal_type = "BUY"
 
-    elif sell_score >= 85 and sell_score > buy_score and not late_sell:
+    elif sell_score >= 85 and sell_score > buy_score and not late_sell and adx >= 20:
         signal = "🔴 SELL"
         signal_score = sell_score
         signal_type = "SELL"
