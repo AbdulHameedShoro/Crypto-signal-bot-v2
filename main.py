@@ -216,6 +216,9 @@ def get_signal(symbol):
     if volume_strong:
         sell_score += 10
         
+    buy_score = min(buy_score, 100)
+    sell_score = min(sell_score, 100)  
+
     if buy_score >= 85 and buy_score > sell_score and not late_buy and adx >= 20:
         signal = "🟢 BUY"
         signal_score = buy_score
