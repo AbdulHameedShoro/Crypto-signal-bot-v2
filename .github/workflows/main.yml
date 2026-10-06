@@ -1,4 +1,4 @@
-name: Crypto Signal Bot v2
+name: Crypto Signal Bot
 
 "on":
   workflow_dispatch:
