@@ -4,7 +4,7 @@ name: Crypto Signal Bot
   workflow_dispatch:
 
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "2,17,32,47 * * * *"
 
 jobs:
   test:
