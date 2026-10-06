@@ -75,7 +75,7 @@ def get_signal(symbol):
     closes = [float(candle[4]) for candle in candles]
     volumes = [float(candle[5]) for candle in candles]
 
-    price = closes[-1]
+    price = closes[-2]
 
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
