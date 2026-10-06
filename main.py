@@ -644,5 +644,6 @@ def send_discord(message):
         response.raise_for_status()
 
     print("✅ Discord message sent successfully.")
+    
  if __name__ == "__main__":
     main()
