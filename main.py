@@ -119,13 +119,14 @@ def calculate_adx(highs, lows, closes, period=14):
         return 0
 
     return sum(dx_values[-period:]) / min(period, len(dx_values))
+
 def get_signal(symbol):
     candles = get_klines(symbol, interval="15m", limit=150)
 
-closes = [float(candle[4]) for candle in candles]
-highs = [float(candle[2]) for candle in candles]
-lows = [float(candle[3]) for candle in candles]
-volumes = [float(candle[5]) for candle in candles]
+    closes = [float(candle[4]) for candle in candles]
+    highs = [float(candle[2]) for candle in candles]
+    lows = [float(candle[3]) for candle in candles]
+    volumes = [float(candle[5]) for candle in candles]
     price = closes[-2]
 
     ema20 = calculate_ema(closes, 20)
