@@ -68,18 +68,70 @@ def calculate_rsi(values, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
+def calculate_adx(highs, lows, closes, period=14):
+    tr = []
+    plus_dm = []
+    minus_dm = []
 
+    for i in range(1, len(closes)):
+        high_low = highs[i] - lows[i]
+        high_close = abs(highs[i] - closes[i - 1])
+        low_close = abs(lows[i] - closes[i - 1])
+
+        tr.append(max(high_low, high_close, low_close))
+
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+
+        plus_dm.append(up_move if up_move > down_move and up_move > 0 else 0)
+        minus_dm.append(down_move if down_move > up_move and down_move > 0 else 0)
+
+    if len(tr) < period:
+        return 0
+
+    atr = sum(tr[:period]) / period
+    plus_di = (sum(plus_dm[:period]) / period) / atr * 100
+    minus_di = (sum(minus_dm[:period]) / period) / atr * 100
+
+    dx_values = []
+
+    for i in range(period, len(tr)):
+        atr = ((atr * (period - 1)) + tr[i]) / period
+
+        plus_avg = sum(plus_dm[i - period + 1:i + 1]) / period
+        minus_avg = sum(minus_dm[i - period + 1:i + 1]) / period
+
+        if atr == 0:
+            continue
+
+        plus_di = plus_avg / atr * 100
+        minus_di = minus_avg / atr * 100
+
+        di_sum = plus_di + minus_di
+
+        if di_sum == 0:
+            continue
+
+        dx = abs(plus_di - minus_di) / di_sum * 100
+        dx_values.append(dx)
+
+    if not dx_values:
+        return 0
+
+    return sum(dx_values[-period:]) / min(period, len(dx_values))
 def get_signal(symbol):
     candles = get_klines(symbol, interval="15m", limit=150)
 
-    closes = [float(candle[4]) for candle in candles]
-    volumes = [float(candle[5]) for candle in candles]
-
+closes = [float(candle[4]) for candle in candles]
+highs = [float(candle[2]) for candle in candles]
+lows = [float(candle[3]) for candle in candles]
+volumes = [float(candle[5]) for candle in candles]
     price = closes[-2]
 
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
+    adx = calculate_adx(highs, lows, closes)
 
     distance_from_ema20 = abs(price - ema20) / ema20 * 100
 
@@ -154,7 +206,7 @@ def get_signal(symbol):
     if volume_strong:
         sell_score += 10
         
-    if buy_score >= 85 and buy_score > sell_score and not late_buy:
+    if buy_score >= 85 and buy_score > sell_score and not late_buy and adx >= 20:
         signal = "🟢 BUY"
         signal_score = buy_score
         signal_type = "BUY"
