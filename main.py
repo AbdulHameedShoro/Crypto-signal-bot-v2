@@ -586,91 +586,62 @@ def estimate_duration(price, tp2, atr):
 
     return f"تقریباً {hours / 24:.1f} دن"
 
-
 def send_discord(message):
     if not WEBHOOK_URL:
         print("Discord webhook secret is not configured.")
         return
 
-    response = requests.post(
-        WEBHOOK_URL,
-        json={"content": message},
-        timeout=10
-    )
-    print("Discord response:", response.status_code, response.text)
-    
-    response.raise_for_status()
+    # Discord ایک message میں زیادہ سے زیادہ 2000 characters قبول کرتا ہے۔
+    # اس لیے بڑے message کو چھوٹے حصوں میں تقسیم کریں گے۔
+    max_length = 1900
+
+    parts = []
+    current_part = ""
+
+    sections = message.split("\n\n")
+
+    for section in sections:
+        section = section.strip()
+
+        if not section:
+            continue
+
+        candidate = (
+            current_part + "\n\n" + section
+            if current_part
+            else section
+        )
+
+        if len(candidate) <= max_length:
+            current_part = candidate
+        else:
+            if current_part:
+                parts.append(current_part)
+
+            # اگر ایک section خود بھی بڑا ہو
+            while len(section) > max_length:
+                parts.append(section[:max_length])
+                section = section[max_length:]
+
+            current_part = section
+
+    if current_part:
+        parts.append(current_part)
+
+    for index, part in enumerate(parts, start=1):
+        response = requests.post(
+            WEBHOOK_URL,
+            json={"content": part},
+            timeout=10
+        )
+
+        print(
+            f"Discord response {index}/{len(parts)}:",
+            response.status_code,
+            response.text
+        )
+
+        response.raise_for_status()
 
     print("✅ Discord message sent successfully.")
 
-
-def main():
-    message = "📊 **Crypto Signal Bot V2**\n\n"
-    message += "⏱️ Time Frame: 15m\n"
-    message += "📌 Closed Candle Analysis\n\n"
-
-    for symbol in COINS:
-        try:
-            data = get_signal(symbol)
-
-            price = data["price"]
-            ema20 = data["ema20"]
-            ema50 = data["ema50"]
-            rsi = data["rsi"]
-            adx = data["adx"]
-            atr = data["atr"]
-            trend = data["trend"]
-            signal = data["signal"]
-            signal_score = data["signal_score"]
-            volume_ratio = data["volume_ratio"]
-            support = data["support"]
-            resistance = data["resistance"]
-            reason = data["reason"]
-
-            stop_loss, tp1, tp2 = calculate_trade_levels(
-                price,
-                atr,
-                signal
-            )
-
-            message += f"**{symbol}**\n"
-            message += f"💰 Entry: {price:.6f}\n"
-            message += f"📈 Trend: {trend}\n"
-            message += f"📊 RSI: {rsi:.2f}\n"
-            message += f"📐 ADX: {adx:.2f}\n"
-            message += f"📦 Volume: {volume_ratio:.2f}x average\n"
-            message += f"〽️ EMA20: {ema20:.6f}\n"
-            message += f"〽️ EMA50: {ema50:.6f}\n"
-            message += f"🛟 Support: {support:.6f}\n"
-            message += f"🚧 Resistance: {resistance:.6f}\n"
-            message += f"🎯 Signal: {signal}\n"
-            message += f"💪 Signal Score: {signal_score}/100\n"
-
-            if signal != "🟡 WAIT":
-                duration = estimate_duration(
-                    price,
-                    tp2,
-                    atr
-                )
-
-                message += "📌 Trade Type: Intraday\n"
-                message += f"⏳ Expected Duration: {duration}\n"
-                message += "⏰ Signal Validity: Next few candles, unless setup invalidates\n"
-                message += f"🛑 Stop Loss: {stop_loss:.6f}\n"
-                message += f"🎯 TP1: {tp1:.6f}\n"
-                message += f"🎯 TP2: {tp2:.6f}\n"
-                message += "⚖️ Risk/Reward: 1:2.5\n"
-
-            message += f"📝 Confirmation: {reason}\n"
-            message += "\n"
-
-        except Exception as e:
-            message += f"❌ {symbol}: Data error\n"
-            print(f"{symbol}: {e}")
-
-    print(message)
-    send_discord(message)
-
-
-if __name__ == "__main__":
-    main()
