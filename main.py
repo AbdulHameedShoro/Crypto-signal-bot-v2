@@ -184,7 +184,10 @@ volumes = [float(candle[5]) for candle in candles]
 
     if bullish_momentum:
         buy_score += 15
-
+        
+    if adx >= 25:
+        buy_score += 10
+        
     if volume_strong:
         buy_score += 10
 
@@ -196,6 +199,9 @@ volumes = [float(candle[5]) for candle in candles]
 
     if ema_bearish:
         sell_score += 15
+        
+    if adx >= 25:
+        sell_score += 10 
 
     if 32 <= rsi <= 48:
         sell_score += 20
