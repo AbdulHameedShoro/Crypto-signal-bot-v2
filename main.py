@@ -644,7 +644,72 @@ def send_discord(message):
         response.raise_for_status()
 
         print("✅ Discord message sent successfully.")
+        
+def main():
+    print("🚀 Crypto Signal Bot started")
+
+    message_parts = []
+
+    for symbol in COINS:
+        try:
+            print(f"📊 Checking {symbol}...")
+
+            result = get_signal(symbol)
+
+            price = result["price"]
+            atr = result["atr"]
+            signal = result["signal"]
+
+            sl, tp1, tp2 = calculate_trade_levels(
+                price,
+                atr,
+                signal
+            )
+
+            duration = estimate_duration(
+                price,
+                tp2,
+                atr
+            )
+
+            if sl is not None:
+    levels = (
+        f"🛑 Stop Loss: {sl:.8g}\n"
+        f"🎯 TP1: {tp1:.8g}\n"
+        f"🎯 TP2: {tp2:.8g}\n"
+    )
+else:
+    levels = (
+        "🛑 Stop Loss: N/A\n"
+        "🎯 TP1: N/A\n"
+        "🎯 TP2: N/A\n"
+    )
+
+message = (
+    f"📊 **Crypto Signal Bot**\n\n"
+    f"**{symbol}**\n"
+    f"💰 Entry: {price:.8g}\n"
+    f"📈 Trend: {result['trend']}\n"
+    f"📊 RSI: {result['rsi']:.2f}\n"
+    f"〽️ EMA20: {result['ema20']:.8g}\n"
+    f"〽️ EMA50: {result['ema50']:.8g}\n"
+    f"💪 ADX: {result['adx']:.2f}\n"
+    f"📦 Volume: {result['volume_ratio']:.2f}x\n"
+    f"🎯 Signal: {signal}\n"
+    f"💯 Signal Score: {result['signal_score']}/100\n"
+    f"{levels}"
+    f"⏱️ Expected: {duration}\n"
+    f"📝 Reason: {result['reason']}"
+)
+
+            message_parts.append(message)
+
+        except Exception as e:
+            print(f"❌ {symbol} error: {e}")
+
+    if message_parts:
+        send_discord("\n\n".join(message_parts))
 
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
