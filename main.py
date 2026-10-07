@@ -437,27 +437,31 @@ def get_signal(symbol):
     signal_score = max(buy_score, sell_score)
 
     buy_confirmations = (
-        bullish_ema
-        and bullish_rsi
-        and bullish_momentum
-        and strong_trend
-        and volume_strong
-        and enough_buy_room
-        and not late_buy
+    bullish_ema
+    and bullish_rsi
+    and enough_buy_room
+    and not late_buy
+    and (
+        strong_trend
+        or volume_strong
+        or bullish_structure
+    )
     )
 
     sell_confirmations = (
-        bearish_ema
-        and bearish_rsi
-        and bearish_momentum
-        and strong_trend
-        and volume_strong
-        and enough_sell_room
-        and not late_sell
+    bearish_ema
+    and bearish_rsi
+    and enough_sell_room
+    and not late_sell
+    and (
+        strong_trend
+        or volume_strong
+        or bearish_structure
+    )
     )
 
     if (
-        buy_score >= 85
+        buy_score >= 80
         and buy_score > sell_score
         and buy_confirmations
     ):
@@ -466,7 +470,7 @@ def get_signal(symbol):
         signal_score = buy_score
 
     elif (
-        sell_score >= 85
+        sell_score >= 80
         and sell_score > buy_score
         and sell_confirmations
     ):
