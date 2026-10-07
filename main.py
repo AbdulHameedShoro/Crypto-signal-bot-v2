@@ -673,34 +673,34 @@ def main():
             )
 
             if sl is not None:
-    levels = (
-        f"🛑 Stop Loss: {sl:.8g}\n"
-        f"🎯 TP1: {tp1:.8g}\n"
-        f"🎯 TP2: {tp2:.8g}\n"
-    )
-else:
-    levels = (
-        "🛑 Stop Loss: N/A\n"
-        "🎯 TP1: N/A\n"
-        "🎯 TP2: N/A\n"
-    )
+                levels = (
+                    f"🛑 Stop Loss: {sl:.8g}\n"
+                    f"🎯 TP1: {tp1:.8g}\n"
+                    f"🎯 TP2: {tp2:.8g}\n"
+                )
+            else:
+                levels = (
+                    "🛑 Stop Loss: N/A\n"
+                    "🎯 TP1: N/A\n"
+                    "🎯 TP2: N/A\n"
+                )
 
-message = (
-    f"📊 **Crypto Signal Bot**\n\n"
-    f"**{symbol}**\n"
-    f"💰 Entry: {price:.8g}\n"
-    f"📈 Trend: {result['trend']}\n"
-    f"📊 RSI: {result['rsi']:.2f}\n"
-    f"〽️ EMA20: {result['ema20']:.8g}\n"
-    f"〽️ EMA50: {result['ema50']:.8g}\n"
-    f"💪 ADX: {result['adx']:.2f}\n"
-    f"📦 Volume: {result['volume_ratio']:.2f}x\n"
-    f"🎯 Signal: {signal}\n"
-    f"💯 Signal Score: {result['signal_score']}/100\n"
-    f"{levels}"
-    f"⏱️ Expected: {duration}\n"
-    f"📝 Reason: {result['reason']}"
-)
+            message = (
+                f"📊 **Crypto Signal Bot**\n\n"
+                f"**{symbol}**\n"
+                f"💰 Entry: {price:.8g}\n"
+                f"📈 Trend: {result['trend']}\n"
+                f"📊 RSI: {result['rsi']:.2f}\n"
+                f"〽️ EMA20: {result['ema20']:.8g}\n"
+                f"〽️ EMA50: {result['ema50']:.8g}\n"
+                f"💪 ADX: {result['adx']:.2f}\n"
+                f"📦 Volume: {result['volume_ratio']:.2f}x\n"
+                f"🎯 Signal: {signal}\n"
+                f"💯 Signal Score: {result['signal_score']}/100\n"
+                f"{levels}"
+                f"⏱️ Expected: {duration}\n"
+                f"📝 Reason: {result['reason']}"
+            )
 
             message_parts.append(message)
 
