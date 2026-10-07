@@ -686,7 +686,6 @@ def main():
                 )
 
             message = (
-                f"📊 **Crypto Signal Bot**\n\n"
                 f"**{symbol}**\n"
                 f"💰 Entry: {price:.8g}\n"
                 f"📈 Trend: {result['trend']}\n"
