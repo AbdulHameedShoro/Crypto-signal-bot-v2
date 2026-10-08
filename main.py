@@ -7,7 +7,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ZENUSDT","ZECUSDT"]
 
 # Binance USDⓈ-M Futures
-BINANCE_URL = "https://fapi.binance.com"
+BINANCE_URL = "https://api.binance.com"
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 200
 
@@ -25,7 +25,7 @@ TIMEOUT = 10
 
 def get_klines(symbol):
     r = requests.get(
-        f"{BINANCE_URL}/fapi/v1/klines",
+        url = f"{BINANCE_URL}/api/v3/klines"
         params={
             "symbol": symbol,
             "interval": TIMEFRAME,
