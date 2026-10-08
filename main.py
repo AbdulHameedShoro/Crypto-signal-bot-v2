@@ -101,18 +101,27 @@ def calculate_atr(highs, lows, closes, period=14):
 
 def calculate_adx(highs, lows, closes, period=14):
     if len(closes) < period * 2 + 1:
-        return 0.0
+        return 0.0, 0.0, 0.0
+
     trs, plus_dm, minus_dm = [], [], []
+
     for i in range(1, len(closes)):
         trs.append(max(
             highs[i] - lows[i],
             abs(highs[i] - closes[i - 1]),
             abs(lows[i] - closes[i - 1]),
         ))
+
         up = highs[i] - highs[i - 1]
         down = lows[i - 1] - lows[i]
-        plus_dm.append(up if up > down and up > 0 else 0.0)
-        minus_dm.append(down if down > up and down > 0 else 0.0)
+
+        plus_dm.append(
+            up if up > down and up > 0 else 0.0
+        )
+
+        minus_dm.append(
+            down if down > up and down > 0 else 0.0
+        )
 
     atr = sum(trs[:period]) / period
     plus = sum(plus_dm[:period]) / period
@@ -123,21 +132,29 @@ def calculate_adx(highs, lows, closes, period=14):
         atr = (atr * (period - 1) + trs[i]) / period
         plus = (plus * (period - 1) + plus_dm[i]) / period
         minus = (minus * (period - 1) + minus_dm[i]) / period
+
         if atr == 0:
             continue
+
         pdi = plus / atr * 100
         mdi = minus / atr * 100
+
         total = pdi + mdi
+
         if total:
-            dxs.append(abs(pdi - mdi) / total * 100)
+            dxs.append(
+                abs(pdi - mdi) / total * 100
+            )
 
     if len(dxs) < period:
-        return 0.0
+        return 0.0, 0.0, 0.0
+
     adx = sum(dxs[:period]) / period
+
     for dx in dxs[period:]:
         adx = (adx * (period - 1) + dx) / period
-    return adx, pdi, mdi
 
+    return adx, pdi, mdi
 
 def get_support_resistance(highs, lows, lookback=20):
     return min(lows[-lookback - 1:-1]), max(highs[-lookback - 1:-1])
@@ -210,34 +227,50 @@ def get_signal(symbol):
     bear_structure = bear_break or bear_retest
 
     dist_ema = abs(price - ema20) / atr if atr > 0 else 0
-    late_buy = price > ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
-    late_sell = price < ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
+
+    late_buy = (
+        price > ema20
+        and dist_ema > MAX_ENTRY_DISTANCE_ATR
+    )
+
+    late_sell = (
+        price < ema20
+        and dist_ema > MAX_ENTRY_DISTANCE_ATR
+    )
 
     bull_rsi = 52 <= rsi <= 68
     bear_rsi = 32 <= rsi <= 48
 
-bull_rsi_continuation = (
-    rsi > 68
-    and adx >= 30
-    and di_bull
-    and vol_strong
-    and bull_ema
-    and bull_momentum
-    and not late_buy
-)
+    bull_rsi_continuation = (
+        rsi > 68
+        and adx >= 30
+        and di_bull
+        and vol_strong
+        and bull_ema
+        and bull_momentum
+        and not late_buy
+    )
 
-bear_rsi_continuation = (
-    rsi < 32
-    and adx >= 30
-    and di_bear
-    and vol_strong
-    and bear_ema
-    and bear_momentum
-    and not late_sell
-)
+    bear_rsi_continuation = (
+        rsi < 32
+        and adx >= 30
+        and di_bear
+        and vol_strong
+        and bear_ema
+        and bear_momentum
+        and not late_sell
+    )
 
-bull_rsi_ok = bull_rsi or bull_rsi_continuation
-bear_rsi_ok = bear_rsi or bear_rsi_continuation
+    bull_rsi_ok = (
+        bull_rsi
+        or bull_rsi_continuation
+    )
+
+    bear_rsi_ok = (
+        bear_rsi
+        or bear_rsi_continuation
+    )
+
     strong_trend = adx >= 25
 
     res_dist = (resistance - price) / atr if atr > 0 else 0
@@ -250,7 +283,7 @@ bear_rsi_ok = bear_rsi or bear_rsi_continuation
     buy += 15 if ema20 > ema50 else 0
     buy += 10 if ema20_up else 0
     buy += 5 if ema50_up else 0
-    buy += 15 if bull_rsi else 0
+    buy += 15 if bull_rsi_ok else 0
     buy += 10 if bull_momentum else 0
     buy += 15 if adx >= 25 else (8 if adx >= 20 else 0)
     buy += 10 if vol_strong else 0
@@ -265,7 +298,7 @@ bear_rsi_ok = bear_rsi or bear_rsi_continuation
     sell += 15 if ema20 < ema50 else 0
     sell += 10 if ema20_down else 0
     sell += 5 if ema50_down else 0
-    sell += 15 if bear_rsi else 0
+    sell += 15 if bear_rsi_ok else 0
     sell += 10 if bear_momentum else 0
     sell += 15 if adx >= 25 else (8 if adx >= 20 else 0)
     sell += 10 if vol_strong else 0
@@ -275,9 +308,21 @@ bear_rsi_ok = bear_rsi or bear_rsi_continuation
     sell -= 5 if vol_weak else 0
     sell = max(0, min(sell, 100))
 
-    buy_confirm = bull_ema and bull_rsi and enough_buy and not late_buy and (strong_trend or vol_strong or bull_structure)
-    sell_confirm = bear_ema and bear_rsi and enough_sell and not late_sell and (strong_trend or vol_strong or bear_structure)
+    buy_confirm = (
+        bull_ema
+        and bull_rsi_ok
+        and enough_buy
+        and not late_buy
+        and (strong_trend or vol_strong or bull_structure)
+    )
 
+    sell_confirm = (
+        bear_ema
+        and bear_rsi_ok
+        and enough_sell
+        and not late_sell
+        and (strong_trend or vol_strong or bear_structure)
+    )
     if buy >= MIN_SIGNAL_SCORE and buy > sell and buy_confirm:
         signal, kind, score = "🟢 BUY", "BUY", buy
     elif sell >= MIN_SIGNAL_SCORE and sell > buy and sell_confirm:
@@ -301,7 +346,7 @@ bear_rsi_ok = bear_rsi or bear_rsi_continuation
         if vol_weak: reasons.append("Volume very weak")
         elif not vol_strong: reasons.append("Volume below strong level")
         if not bull_ema and not bear_ema: reasons.append("EMA trend unclear")
-        if not bull_rsi and not bear_rsi: reasons.append("RSI not confirmed")
+        if not bull_rsi_ok and not bear_rsi_ok: reasons.append("RSI not confirmed")
         if late_buy or late_sell: reasons.append("Entry too late")
         if not enough_buy and not enough_sell: reasons.append("Near support/resistance")
         if not reasons: reasons.append("Full confirmation not available")
