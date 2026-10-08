@@ -182,6 +182,7 @@ def get_signal(symbol):
     candles = get_klines(symbol)
     closed = candles[:-1]  # running candle excluded
 
+    opens = [float(c[1]) for c in closed]
     closes = [float(c[4]) for c in closed]
     highs = [float(c[2]) for c in closed]
     lows = [float(c[3]) for c in closed]
@@ -329,7 +330,174 @@ def get_signal(symbol):
         signal, kind, score = "🔴 SELL", "SELL", sell
     else:
         signal, kind, score = "🟡 WAIT", "WAIT", min(max(buy, sell), 84)
+    # =========================
+    # ENTRY QUALITY ANALYSIS
+    # =========================
 
+    last_open = opens[-1]
+    last_close = closes[-1]
+    last_high = highs[-1]
+    last_low = lows[-1]
+
+    candle_range = last_high - last_low
+    candle_body = abs(last_close - last_open)
+
+    upper_wick = last_high - max(last_open, last_close)
+    lower_wick = min(last_open, last_close) - last_low
+
+    body_ratio = (
+        candle_body / candle_range
+        if candle_range > 0 else 0
+    )
+
+    close_position = (
+        (last_close - last_low) / candle_range
+        if candle_range > 0 else 0.5
+    )
+
+    # Strong candle confirmation
+    bullish_candle_confirmation = (
+        last_close > last_open
+        and body_ratio >= 0.45
+        and close_position >= 0.65
+    )
+
+    bearish_candle_confirmation = (
+        last_close < last_open
+        and body_ratio >= 0.45
+        and close_position <= 0.35
+    )
+
+    # Rejection candle confirmation
+    bullish_rejection = (
+        lower_wick >= candle_body * 0.75
+        and close_position >= 0.55
+        and last_close >= last_open
+    )
+
+    bearish_rejection = (
+        upper_wick >= candle_body * 0.75
+        and close_position <= 0.45
+        and last_close <= last_open
+    )
+
+    bull_candle_ok = (
+        bullish_candle_confirmation
+        or bullish_rejection
+    )
+
+    bear_candle_ok = (
+        bearish_candle_confirmation
+        or bearish_rejection
+    )
+
+    # Ideal entry distance
+    ideal_entry_distance = dist_ema <= 1.0
+
+    # Directional Entry Quality Score
+    buy_quality = 0
+    sell_quality = 0
+
+    # Trend alignment
+    buy_quality += 20 if bull_ema else 0
+    sell_quality += 20 if bear_ema else 0
+
+    # RSI momentum
+    buy_quality += 15 if bull_rsi_ok else 0
+    sell_quality += 15 if bear_rsi_ok else 0
+
+    # ADX + DI direction
+    buy_quality += 15 if adx >= 25 and di_bull else 0
+    sell_quality += 15 if adx >= 25 and di_bear else 0
+
+    # Volume
+    buy_quality += 15 if vol_strong else 0
+    sell_quality += 15 if vol_strong else 0
+
+    # Market structure
+    buy_quality += 15 if bull_structure else 0
+    sell_quality += 15 if bear_structure else 0
+
+    # Candle confirmation
+    buy_quality += 10 if bull_candle_ok else 0
+    sell_quality += 10 if bear_candle_ok else 0
+
+    # Entry distance
+    buy_quality += 10 if ideal_entry_distance and not late_buy else 0
+    sell_quality += 10 if ideal_entry_distance and not late_sell else 0
+
+    buy_quality = max(0, min(buy_quality, 100))
+    sell_quality = max(0, min(sell_quality, 100))
+
+    if kind == "BUY":
+        entry_quality_score = buy_quality
+    elif kind == "SELL":
+        entry_quality_score = sell_quality
+    else:
+        entry_quality_score = max(buy_quality, sell_quality)
+
+    if entry_quality_score >= 90:
+        entry_quality = "A+"
+    elif entry_quality_score >= 80:
+        entry_quality = "A"
+    elif entry_quality_score >= 70:
+        entry_quality = "B"
+    else:
+        entry_quality = "C"
+
+    # Setup description
+    if kind == "BUY":
+        if bull_break and bull_retest:
+            entry_setup = "Breakout + Retest"
+        elif bull_break:
+            entry_setup = "Breakout"
+        elif bull_retest:
+            entry_setup = "Retest"
+        elif bull_structure:
+            entry_setup = "Bullish Structure"
+        else:
+            entry_setup = "Trend Continuation"
+
+        if bullish_candle_confirmation:
+            candle_status = "Strong Bullish Candle"
+        elif bullish_rejection:
+            candle_status = "Bullish Rejection"
+        else:
+            candle_status = "Candle Not Fully Confirmed"
+
+    elif kind == "SELL":
+        if bear_break and bear_retest:
+            entry_setup = "Breakdown + Retest"
+        elif bear_break:
+            entry_setup = "Breakdown"
+        elif bear_retest:
+            entry_setup = "Retest"
+        elif bear_structure:
+            entry_setup = "Bearish Structure"
+        else:
+            entry_setup = "Trend Continuation"
+
+        if bearish_candle_confirmation:
+            candle_status = "Strong Bearish Candle"
+        elif bearish_rejection:
+            candle_status = "Bearish Rejection"
+        else:
+            candle_status = "Candle Not Fully Confirmed"
+
+    else:
+        entry_setup = "No Confirmed Setup"
+
+        if bull_candle_ok or bear_candle_ok:
+            candle_status = "Partial Confirmation"
+        else:
+            candle_status = "Not Confirmed"
+
+    if kind in ("BUY", "SELL") and ideal_entry_distance:
+        entry_timing = "Ideal"
+    elif kind in ("BUY", "SELL") and not (late_buy or late_sell):
+        entry_timing = "Acceptable"
+    else:
+        entry_timing = "Late"
     if kind == "BUY":
         reasons = ["Bullish trend", "EMA alignment", "RSI momentum", "ADX strength"]
         if vol_strong: reasons.append("Volume confirmation")
@@ -360,7 +528,14 @@ def get_signal(symbol):
             "Bearish" if price < ema20 and ema20 < ema50 else "Neutral"
         ),
         "signal": signal, "signal_type": kind, "signal_score": score,
-        "buy_score": buy, "sell_score": sell, "volume_ratio": vol_ratio,
+        "buy_score": buy,
+        "sell_score": sell,
+        "volume_ratio": vol_ratio,
+        "entry_quality": entry_quality,
+        "entry_quality_score": entry_quality_score,
+        "entry_setup": entry_setup,
+        "candle_status": candle_status,
+        "entry_timing": entry_timing,
         "support": support, "resistance": resistance,
         "nearest_support": ns, "nearest_resistance": nr,
         "reason": " + ".join(reasons),
@@ -484,6 +659,10 @@ def main():
                 f"📦 Volume: {result['volume_ratio']:.2f}x\n"
                 f"🎯 Signal: {signal}\n"
                 f"💯 Signal Score: {result['signal_score']}/100\n"
+                f"⭐ Entry Quality: {result['entry_quality']} ({result['entry_quality_score']}/100)\n"
+                f"📌 Setup: {result['entry_setup']}\n"
+                f"🕯️ Candle: {result['candle_status']}\n"
+                f"🎯 Entry Timing: {result['entry_timing']}\n"
                 f"📉 Support: {support_text}\n"
                 f"📈 Resistance: {resistance_text}\n"
                 f"{levels}"
