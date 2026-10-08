@@ -7,7 +7,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ZENUSDT","ZECUSDT"]
 
 # Binance USDⓈ-M Futures
-BINANCE_URL = "https://fapi1.binance.com"
+BINANCE_URL = "https://fapi.binance.com"
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 200
 
@@ -26,30 +26,34 @@ TIMEOUT = 10
 def get_klines(symbol):
     r = requests.get(
         f"{BINANCE_URL}/fapi/v1/klines",
-        params={"symbol": symbol, "interval": TIMEFRAME, "limit": CANDLE_LIMIT},
+        params={
+            "symbol": symbol,
+            "interval": TIMEFRAME,
+            "limit": CANDLE_LIMIT,
+        },
         timeout=TIMEOUT,
     )
-    r.raise_for_status()
 
-    response_text = r.text.strip()
-
-    if not response_text:
-        raise ValueError(f"Empty response from Binance for {symbol}")
+    if r.status_code != 200:
+        raise ValueError(
+            f"Binance Futures API error for {symbol}: "
+            f"HTTP {r.status_code} | {r.text[:300]}"
+        )
 
     try:
         data = r.json()
     except ValueError:
         raise ValueError(
-            f"Binance returned non-JSON response for {symbol}: "
-            f"HTTP {r.status_code} | {response_text[:300]}"
+            f"Binance Futures returned invalid response for {symbol}: "
+            f"{r.text[:300]}"
         )
 
     if not isinstance(data, list) or len(data) < 60:
-        raise ValueError(f"Not enough Futures candle data for {symbol}")
+        raise ValueError(
+            f"Not enough Futures candle data for {symbol}"
+        )
 
     return data
-
-
 def calculate_ema(values, period):
     if len(values) < period:
         return values[-1]
