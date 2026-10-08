@@ -136,7 +136,7 @@ def calculate_adx(highs, lows, closes, period=14):
     adx = sum(dxs[:period]) / period
     for dx in dxs[period:]:
         adx = (adx * (period - 1) + dx) / period
-    return adx
+    return adx, pdi, mdi
 
 
 def get_support_resistance(highs, lows, lookback=20):
@@ -175,8 +175,9 @@ def get_signal(symbol):
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
     atr = calculate_atr(highs, lows, closes)
-    adx = calculate_adx(highs, lows, closes)
-
+    adx, pdi, mdi = calculate_adx(highs, lows, closes)
+    di_bull = pdi > mdi
+    di_bear = mdi > pdi
     ema20_prev = calculate_ema(closes[:-3], 20)
     ema50_prev = calculate_ema(closes[:-3], 50)
     ema20_up = ema20 > ema20_prev
@@ -214,6 +215,29 @@ def get_signal(symbol):
 
     bull_rsi = 52 <= rsi <= 68
     bear_rsi = 32 <= rsi <= 48
+
+bull_rsi_continuation = (
+    rsi > 68
+    and adx >= 30
+    and di_bull
+    and vol_strong
+    and bull_ema
+    and bull_momentum
+    and not late_buy
+)
+
+bear_rsi_continuation = (
+    rsi < 32
+    and adx >= 30
+    and di_bear
+    and vol_strong
+    and bear_ema
+    and bear_momentum
+    and not late_sell
+)
+
+bull_rsi_ok = bull_rsi or bull_rsi_continuation
+bear_rsi_ok = bear_rsi or bear_rsi_continuation
     strong_trend = adx >= 25
 
     res_dist = (resistance - price) / atr if atr > 0 else 0
