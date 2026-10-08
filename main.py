@@ -25,7 +25,7 @@ TIMEOUT = 10
 
 def get_klines(symbol):
     r = requests.get(
-        url = f"{BINANCE_URL}/api/v3/klines"
+        url = f"{BINANCE_URL}/api/v3/klines",
         params={
             "symbol": symbol,
             "interval": TIMEFRAME,
