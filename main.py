@@ -30,9 +30,23 @@ def get_klines(symbol):
         timeout=TIMEOUT,
     )
     r.raise_for_status()
-    data = r.json()
+
+    response_text = r.text.strip()
+
+    if not response_text:
+        raise ValueError(f"Empty response from Binance for {symbol}")
+
+    try:
+        data = r.json()
+    except ValueError:
+        raise ValueError(
+            f"Binance returned non-JSON response for {symbol}: "
+            f"HTTP {r.status_code} | {response_text[:300]}"
+        )
+
     if not isinstance(data, list) or len(data) < 60:
         raise ValueError(f"Not enough Futures candle data for {symbol}")
+
     return data
 
 
