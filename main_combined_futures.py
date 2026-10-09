@@ -18,7 +18,7 @@ CANDLE_LIMIT = 200
 TIMEOUT = 12
 
 # Balanced settings: not as strict as the original filter, but still confirmed.
-MIN_SIGNAL_SCORE = 78
+MIN_SIGNAL_SCORE = 72
 STOP_ATR_MULTIPLIER = 1.5
 TP1_RR = 1.5
 TP2_RR = 2.5
@@ -258,7 +258,6 @@ def scan_candle_patterns(opens, highs, lows, closes):
     bullish = bull_engulfing or bull_hammer or bull_strong
     bearish = bear_engulfing or bear_star or bear_strong
 
-    return bullish, bearish
     
     # Three-candle Morning Star and Evening Star patterns.
     o0, c0 = opens[-3], closes[-3]
@@ -546,8 +545,8 @@ def get_signal(symbol):
     # A breakout/retest may use a slightly smaller clearance, but still needs
     # at least 1R before a visible obstacle. Trend-continuation entries require
     # 1.2R. This balances trade quality with avoiding an all-WAIT filter.
-    min_room_buy = 1.00 if bull_structure else 1.20
-    min_room_sell = 1.00 if bear_structure else 1.20
+    min_room_buy = 1.00
+    min_room_sell = 1.00
     enough_buy = buy_room_rr >= min_room_buy
     enough_sell = sell_room_rr >= min_room_sell
 
@@ -669,8 +668,8 @@ def get_signal(symbol):
     sell_quality += 15 if bear_rsi_ok else 0
     buy_quality += 15 if bull_structure else 0
     sell_quality += 15 if bear_structure else 0
-    buy_quality += 10 if bull_candle_ok else 0
-    sell_quality += 10 if bear_candle_ok else 0
+    buy_quality += 10 if (bull_candle_ok or bull_pattern_confirmed) else 0
+    sell_quality += 10 if (bear_candle_ok or bear_pattern_confirmed) else 0
 
     volume_points = 15 if vol_strong else (8 if vol_ratio >= WEAK_VOLUME_RATIO else 0)
     buy_quality += volume_points
@@ -683,14 +682,20 @@ def get_signal(symbol):
     sell_quality = max(0, min(100, sell_quality))
 
     # Final candle/quality guard. Lowered from 70 to 65 to avoid over-filtering.
-    if kind == "BUY" and (
-        buy_quality < MIN_QUALITY_SCORE or not bull_candle_ok or vol_weak
-    ):
-        kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
-    elif kind == "SELL" and (
-        sell_quality < MIN_QUALITY_SCORE or not bear_candle_ok or vol_weak
-    ):
-        kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+    # Final candle/quality guard: accept a confirmed candle pattern too.
+if kind == "BUY" and (
+    buy_quality < MIN_QUALITY_SCORE
+    or not (bull_candle_ok or bull_pattern_confirmed)
+    or vol_weak
+):
+    kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+
+elif kind == "SELL" and (
+    sell_quality < MIN_QUALITY_SCORE
+    or not (bear_candle_ok or bear_pattern_confirmed)
+    or vol_weak
+):
+    kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
 
     if kind == "BUY":
         entry_quality_score = buy_quality
