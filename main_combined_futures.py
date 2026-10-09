@@ -635,19 +635,40 @@ def get_signal(symbol):
     sell -= 5 if vol_weak else 0
     sell = max(0, min(sell, 100))
 
-    # Controlled leniency: structure OR aligned DI can support a trade;
-    # ADX need not always be >=25 if volume or structure confirms it.
-    buy_confirm = (
-        (bull_ema or bull_structure_path)
-        and bull_rsi_ok and enough_buy and not late_buy
+    # Moderately relaxed trend confirmation.
+    # Allow early trend entries before EMA20 fully crosses EMA50.
+    bull_early_path = (
+        price > ema20
+        and ema20_up
+        and not late_buy
         and (di_bull or bull_structure)
-        and (adx >= 22 or vol_strong or bull_structure)
+        and (adx >= 20 or vol_ratio >= 0.80 or bull_structure)
     )
-    sell_confirm = (
-        (bear_ema or bear_structure_path)
-        and bear_rsi_ok and enough_sell and not late_sell
+
+    bear_early_path = (
+        price < ema20
+        and ema20_down
+        and not late_sell
         and (di_bear or bear_structure)
-        and (adx >= 22 or vol_strong or bear_structure)
+        and (adx >= 20 or vol_ratio >= 0.80 or bear_structure)
+    )
+
+    buy_confirm = (
+        (bull_ema or bull_structure_path or bull_early_path)
+        and bull_rsi_ok
+        and enough_buy
+        and not late_buy
+        and (di_bull or bull_structure)
+        and (adx >= 20 or vol_ratio >= 0.80 or bull_structure)
+    )
+
+    sell_confirm = (
+        (bear_ema or bear_structure_path or bear_early_path)
+        and bear_rsi_ok
+        and enough_sell
+        and not late_sell
+        and (di_bear or bear_structure)
+        and (adx >= 20 or vol_ratio >= 0.80 or bear_structure)
     )
 
     if buy >= MIN_SIGNAL_SCORE and buy > sell and buy_confirm:
