@@ -1,5 +1,6 @@
 import os
 import math
+import time
 import requests
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -235,11 +236,18 @@ def quality_grade(score):
 
 
 def get_signal(symbol):
-    candles = get_klines(symbol)
+    
+candles = get_klines(symbol)
 
-    # Bybit's newest row is the current, potentially unfinished candle.
-    # Exclude it so signals use only fully closed candles.
-    closed = candles[:-1]
+# Keep only fully closed 15-minute Bitget candles.
+now_ms = int(time.time() * 1000)
+candle_duration_ms = 15 * 60 * 1000
+
+closed = [
+    candle for candle in candles
+    if int(candle[0]) + candle_duration_ms <= now_ms
+]
+
     if len(closed) < 60:
         raise ValueError(f"Not enough closed candles for {symbol}")
 
