@@ -196,6 +196,135 @@ def calculate_adx(highs, lows, closes, period=14):
     return adx, pdi, mdi
 
 
+def scan_candle_patterns(opens, highs, lows, closes):
+    if len(closes) < 3:
+        return False, False
+
+    o1, h1, l1, c1 = opens[-2], highs[-2], lows[-2], closes[-2]
+    o2, h2, l2, c2 = opens[-1], highs[-1], lows[-1], closes[-1]
+
+    body1 = abs(c1 - o1)
+    body2 = abs(c2 - o2)
+
+    range1 = max(h1 - l1, 1e-12)
+    range2 = max(h2 - l2, 1e-12)
+
+    lower_wick2 = min(o2, c2) - l2
+    upper_wick2 = h2 - max(o2, c2)
+    close_position2 = (c2 - l2) / range2
+
+    # Engulfing: current candle covers the previous real body.
+    bull_engulfing = (
+        c1 < o1 and c2 > o2
+        and o2 <= c1 and c2 >= o1
+        and body2 >= body1 * 0.90
+    )
+
+    bear_engulfing = (
+        c1 > o1 and c2 < o2
+        and o2 >= c1 and c2 <= o1
+        and body2 >= body1 * 0.90
+    )
+
+    # Hammer-like bullish rejection.
+    bull_hammer = (
+        lower_wick2 >= max(body2 * 2.0, range2 * 0.45)
+        and upper_wick2 <= range2 * 0.25
+        and close_position2 >= 0.65
+        and c2 > l2 + range2 * 0.65
+    )
+
+    # Shooting-star-like bearish rejection.
+    bear_star = (
+        upper_wick2 >= max(body2 * 2.0, range2 * 0.45)
+        and lower_wick2 <= range2 * 0.25
+        and close_position2 <= 0.35
+        and c2 < h2 - range2 * 0.65
+    )
+
+    # Strong directional candle closing near its extreme.
+    bull_strong = (
+        c2 > o2
+        and body2 / range2 >= 0.60
+        and close_position2 >= 0.80
+    )
+
+    bear_strong = (
+        c2 < o2
+        and body2 / range2 >= 0.60
+        and close_position2 <= 0.20
+    )
+
+    bullish = bull_engulfing or bull_hammer or bull_strong
+    bearish = bear_engulfing or bear_star or bear_strong
+
+    return bullish, bearish
+    
+    # Three-candle Morning Star and Evening Star patterns.
+    o0, c0 = opens[-3], closes[-3]
+    o1, c1 = opens[-2], closes[-2]
+    o2, c2 = opens[-1], closes[-1]
+
+    body0 = abs(c0 - o0)
+    body1 = abs(c1 - o1)
+    body2 = abs(c2 - o2)
+
+    range0 = max(highs[-3] - lows[-3], 1e-12)
+
+    # Morning Star: bearish candle, small middle body,
+    # then a strong bullish candle closing into the first body.
+    morning_star = (
+        c0 < o0
+        and body0 / range0 >= 0.45
+        and body1 <= body0 * 0.60
+        and c2 > o2
+        and body2 >= body0 * 0.40
+        and c2 >= (o0 + c0) / 2
+    )
+
+    # Evening Star: bullish candle, small middle body,
+    # then a strong bearish candle closing into the first body.
+    evening_star = (
+        c0 > o0
+        and body0 / range0 >= 0.45
+        and body1 <= body0 * 0.60
+        and c2 < o2
+        and body2 >= body0 * 0.40
+        and c2 <= (o0 + c0) / 2
+    )
+
+    bullish = (
+        bull_engulfing or bull_hammer or bull_strong
+        or morning_star
+    )
+
+    bearish = (
+        bear_engulfing or bear_star or bear_strong
+        or evening_star
+    )
+
+    return bullish, bearish
+def get_previous_day_levels(candles):
+    now_ms = int(time.time() * 1000)
+    day_ms = 24 * 60 * 60 * 1000
+
+    today_start = (now_ms // day_ms) * day_ms
+    yesterday_start = today_start - day_ms
+
+    previous_day = [
+        candle for candle in candles
+        if yesterday_start <= int(candle[0]) < today_start
+        and int(candle[0]) + 15 * 60 * 1000 <= now_ms
+    ]
+
+    if not previous_day:
+        return None, None
+
+    previous_high = max(float(c[2]) for c in previous_day)
+    previous_low = min(float(c[3]) for c in previous_day)
+
+    return previous_high, previous_low
+    
 def get_support_resistance(highs, lows, lookback=20):
     window = min(lookback, len(highs) - 1)
     if window < 1:
@@ -237,6 +366,7 @@ def quality_grade(score):
 
 def get_signal(symbol):    
     candles = get_klines(symbol)
+    previous_day_high, previous_day_low = get_previous_day_levels(candles)
 
     # Keep only fully closed 15-minute Bitget candles.
     now_ms = int(time.time() * 1000)
@@ -254,6 +384,71 @@ def get_signal(symbol):
     highs = [float(c[2]) for c in closed]
     lows = [float(c[3]) for c in closed]
     closes = [float(c[4]) for c in closed]
+    
+    bull_pattern, bear_pattern = scan_candle_patterns(
+        opens, highs, lows, closes
+    )
+
+    bull_candle = bull_pattern
+    bear_candle = bear_pattern
+        # Give candle patterns more importance near market structure.
+    recent_support, recent_resistance = get_support_resistance(
+        highs, lows, STRUCTURE_LOOKBACK
+    )
+
+    current_price = closes[-1]
+    pattern_atr = calculate_atr(highs, lows, closes)
+
+    near_support = (
+        pattern_atr > 0
+        and current_price - recent_support <= pattern_atr * 0.50
+        and current_price >= recent_support
+    )
+
+    near_resistance = (
+        pattern_atr > 0
+        and recent_resistance - current_price <= pattern_atr * 0.50
+        and current_price <= recent_resistance
+    )
+
+    # Contextual confirmation: a reversal candle matters more
+    # when it appears near the relevant support or resistance.
+    bull_pattern_confirmed = bull_pattern and near_support
+    bear_pattern_confirmed = bear_pattern and near_resistance
+    # Previous day high/low breakout and retest
+    daily_bull_breakout = False
+    daily_bear_breakout = False
+    daily_bull_retest = False
+    daily_bear_retest = False
+
+    if previous_day_high is not None and previous_day_low is not None and len(closed) >= 3:
+        prev_close = closes[-2]
+        last_close = closes[-1]
+        last_high = highs[-1]
+        last_low = lows[-1]
+
+        daily_bull_breakout = (
+            last_close > previous_day_high
+            and prev_close <= previous_day_high
+        )
+
+        daily_bear_breakout = (
+            last_close < previous_day_low
+            and prev_close >= previous_day_low
+        )
+
+        daily_bull_retest = (
+            prev_close > previous_day_high
+            and last_low <= previous_day_high
+            and last_close > previous_day_high
+        )
+
+        daily_bear_retest = (
+            prev_close < previous_day_low
+            and last_high >= previous_day_low
+            and last_close < previous_day_low
+        )
+        
     volumes = [float(c[5]) for c in closed]
     price = closes[-1]
 
@@ -418,6 +613,7 @@ def get_signal(symbol):
     buy += 6 if enough_buy else 0
     buy += 4 if di_bull else 0
     buy += 4 if bull_candle_ok else 0
+    buy += 4 if bull_pattern_confirmed else 0
     buy -= 15 if late_buy else 0
     buy -= 5 if vol_weak else 0
     buy = max(0, min(buy, 100))
@@ -435,6 +631,7 @@ def get_signal(symbol):
     sell += 6 if enough_sell else 0
     sell += 4 if di_bear else 0
     sell += 4 if bear_candle_ok else 0
+    sell += 4 if bear_pattern_confirmed else 0
     sell -= 15 if late_sell else 0
     sell -= 5 if vol_weak else 0
     sell = max(0, min(sell, 100))
