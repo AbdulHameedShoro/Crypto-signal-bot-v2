@@ -18,7 +18,7 @@ CANDLE_LIMIT = 200
 TIMEOUT = 12
 
 # Balanced settings: not as strict as the original filter, but still confirmed.
-MIN_SIGNAL_SCORE = 72
+MIN_SIGNAL_SCORE = 60
 STOP_ATR_MULTIPLIER = 1.5
 TP1_RR = 1.5
 TP2_RR = 2.5
@@ -27,7 +27,7 @@ STRUCTURE_BUFFER_ATR = 0.15
 MAX_ENTRY_DISTANCE_ATR = 1.8
 STRONG_VOLUME_RATIO = 1.10
 WEAK_VOLUME_RATIO = 0.60
-MIN_QUALITY_SCORE = 65
+MIN_QUALITY_SCORE = 45
 
 
 def get_klines(symbol):
