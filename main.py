@@ -118,33 +118,32 @@ def calculate_adx(highs, lows, closes, period=14):
         plus_dm.append(
             up if up > down and up > 0 else 0.0
         )
-
         minus_dm.append(
             down if down > up and down > 0 else 0.0
         )
 
-    atr = sum(trs[:period]) / period
-    plus = sum(plus_dm[:period]) / period
-    minus = sum(minus_dm[:period]) / period
+    atr = sum(trs[:period])
+    plus = sum(plus_dm[:period])
+    minus = sum(minus_dm[:period])
+
     dxs = []
 
     for i in range(period, len(trs)):
-        atr = (atr * (period - 1) + trs[i]) / period
-        plus = (plus * (period - 1) + plus_dm[i]) / period
-        minus = (minus * (period - 1) + minus_dm[i]) / period
+        atr = atr - atr / period + trs[i]
+        plus = plus - plus / period + plus_dm[i]
+        minus = minus - minus / period + minus_dm[i]
 
-        if atr == 0:
+        if atr <= 0:
             continue
 
         pdi = plus / atr * 100
         mdi = minus / atr * 100
-
         total = pdi + mdi
 
-        if total:
-            dxs.append(
-                abs(pdi - mdi) / total * 100
-            )
+        if total > 0:
+            dxs.append(abs(pdi - mdi) / total * 100)
+        else:
+            dxs.append(0.0)
 
     if len(dxs) < period:
         return 0.0, 0.0, 0.0
@@ -152,9 +151,10 @@ def calculate_adx(highs, lows, closes, period=14):
     adx = sum(dxs[:period]) / period
 
     for dx in dxs[period:]:
-        adx = (adx * (period - 1) + dx) / period
+        adx = ((adx * (period - 1)) + dx) / period
 
     return adx, pdi, mdi
+    
 
 def get_support_resistance(highs, lows, lookback=20):
     return min(lows[-lookback - 1:-1]), max(highs[-lookback - 1:-1])
@@ -395,24 +395,23 @@ def get_signal(symbol):
     ideal_entry_distance = dist_ema <= 1.0
 
     # Directional Entry Quality Score
+    
+    # BALANCED DIRECTIONAL ENTRY QUALITY
+
     buy_quality = 0
     sell_quality = 0
 
-    # Trend alignment
-    buy_quality += 20 if bull_ema else 0
-    sell_quality += 20 if bear_ema else 0
+    # EMA trend
+    buy_quality += 30 if bull_ema else 0
+    sell_quality += 30 if bear_ema else 0
+
+    # ADX and directional strength
+    buy_quality += 15 if adx >= 20 and di_bull else 0
+    sell_quality += 15 if adx >= 20 and di_bear else 0
 
     # RSI momentum
     buy_quality += 15 if bull_rsi_ok else 0
     sell_quality += 15 if bear_rsi_ok else 0
-
-    # ADX + DI direction
-    buy_quality += 15 if adx >= 25 and di_bull else 0
-    sell_quality += 15 if adx >= 25 and di_bear else 0
-
-    # Volume
-    buy_quality += 15 if vol_strong else 0
-    sell_quality += 15 if vol_strong else 0
 
     # Market structure
     buy_quality += 15 if bull_structure else 0
@@ -422,12 +421,22 @@ def get_signal(symbol):
     buy_quality += 10 if bull_candle_ok else 0
     sell_quality += 10 if bear_candle_ok else 0
 
-    # Entry distance
-    buy_quality += 10 if ideal_entry_distance and not late_buy else 0
-    sell_quality += 10 if ideal_entry_distance and not late_sell else 0
+    # Volume confirmation
+    volume_points = 15 if vol_strong else (
+        8 if vol_ratio >= WEAK_VOLUME_RATIO else 0
+    )
+    buy_quality += volume_points
+    sell_quality += volume_points
 
-    buy_quality = max(0, min(buy_quality, 100))
-    sell_quality = max(0, min(sell_quality, 100))
+    # Penalties
+    buy_quality -= 10 if late_buy else 0
+    sell_quality -= 10 if late_sell else 0
+
+    buy_quality -= 10 if not enough_buy else 0
+    sell_quality -= 10 if not enough_sell else 0
+
+    buy_quality = max(0, min(100, buy_quality))
+    sell_quality = max(0, min(100, sell_quality))
 
     if kind == "BUY":
         entry_quality_score = buy_quality
@@ -445,6 +454,34 @@ def get_signal(symbol):
     else:
         entry_quality = "C"
 
+    # Final entry filter
+
+    if kind == "BUY" and (
+        buy_quality < 70 or not bull_candle_ok or vol_weak
+    ):
+        signal = "🟡 WAIT"
+        kind = "WAIT"
+        score = min(max(buy, sell), 84)
+
+    elif kind == "SELL" and (
+        sell_quality < 70 or not bear_candle_ok or vol_weak
+    ):
+        signal = "🟡 WAIT"
+        kind = "WAIT"
+        score = min(max(buy, sell), 84)
+
+    if kind == "WAIT":
+        entry_quality_score = max(buy_quality, sell_quality)
+
+        if entry_quality_score >= 90:
+            entry_quality = "A+"
+        elif entry_quality_score >= 80:
+            entry_quality = "A"
+        elif entry_quality_score >= 70:
+            entry_quality = "B"
+        else:
+            entry_quality = "C"
+            
     # Setup description
     if kind == "BUY":
         if bull_break and bull_retest:
