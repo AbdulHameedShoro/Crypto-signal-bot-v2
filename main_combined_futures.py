@@ -11,8 +11,8 @@ COINS = [
 
 # Public USDT perpetual market data from Bybit.
 # This is Bybit Futures data, NOT Binance Futures data.
-BYBIT_URL = "https://api.bybit.com"
-TIMEFRAME = "15"          # Bybit interval: 15 minutes
+BITGET_URL = "https://api.bitget.com"
+TIMEFRAME = "15m"          # Bybit interval: 15 minutes
 CANDLE_LIMIT = 200
 TIMEOUT = 12
 
@@ -30,93 +30,63 @@ MIN_QUALITY_SCORE = 65
 
 
 def get_klines(symbol):
-    """Return Bybit linear USDT perpetual candles in chronological order."""
+    """Fetch Bitget USDT-Futures candles in chronological order."""
 
-    base_urls = [
-        BYBIT_URL,
-        "https://api.bytick.com",
-    ]
-
-    last_error = None
-
-    for base_url in dict.fromkeys(base_urls):
-        try:
-            response = requests.get(
-                f"{base_url}/v5/market/kline",
-                params={
-                    "category": "linear",
-                    "symbol": symbol,
-                    "interval": TIMEFRAME,
-                    "limit": CANDLE_LIMIT,
-                },
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "Mozilla/5.0",
-                },
-                timeout=TIMEOUT,
-            )
-
-            if response.status_code == 403:
-                last_error = (
-                    f"Bybit access forbidden (HTTP 403) "
-                    f"from {base_url}: {response.text[:200]}"
-                )
-                continue
-
-            response.raise_for_status()
-
-            try:
-                payload = response.json()
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid JSON from {base_url} for {symbol}: "
-                    f"{response.text[:200]}"
-                ) from exc
-
-            if not isinstance(payload, dict):
-                raise ValueError(
-                    f"Unexpected API response for {symbol}"
-                )
-
-            if payload.get("retCode") != 0:
-                raise ValueError(
-                    f"Bybit API error for {symbol}: "
-                    f"{payload.get('retCode')} | "
-                    f"{payload.get('retMsg')}"
-                )
-
-            result = payload.get("result")
-            rows = result.get("list") if isinstance(result, dict) else None
-
-            if not isinstance(rows, list) or len(rows) < 60:
-                raise ValueError(
-                    f"Not enough Futures candle data for {symbol}"
-                )
-
-            if not all(
-                isinstance(candle, (list, tuple)) and len(candle) >= 6
-                for candle in rows
-            ):
-                raise ValueError(
-                    f"Invalid candle format for {symbol}"
-                )
-
-            try:
-                rows.sort(key=lambda candle: int(candle[0]))
-            except (TypeError, ValueError, IndexError) as exc:
-                raise ValueError(
-                    f"Invalid candle timestamps for {symbol}"
-                ) from exc
-
-            return rows
-
-        except requests.RequestException as exc:
-            last_error = f"{base_url}: {type(exc).__name__}: {exc}"
-
-    raise RuntimeError(
-        f"Could not fetch Bybit Futures candles for {symbol}. "
-        f"Last error: {last_error}"
+    response = requests.get(
+        f"{BITGET_URL}/api/v2/mix/market/candles",
+        params={
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "granularity": "15m",
+            "limit": str(CANDLE_LIMIT),
+        },
+        headers={"Accept": "application/json"},
+        timeout=TIMEOUT,
     )
+    response.raise_for_status()
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ValueError(
+            f"Bitget returned invalid JSON for {symbol}: "
+            f"{response.text[:200]}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Unexpected Bitget response for {symbol}"
+        )
+
+    if payload.get("code") != "00000":
+        raise ValueError(
+            f"Bitget API error for {symbol}: "
+            f"{payload.get('code')} | {payload.get('msg')}"
+        )
+
+    rows = payload.get("data")
+
+    if not isinstance(rows, list) or len(rows) < 60:
+        raise ValueError(
+            f"Not enough Bitget Futures candles for {symbol}"
+        )
+
+    if not all(
+        isinstance(candle, (list, tuple)) and len(candle) >= 6
+        for candle in rows
+    ):
+        raise ValueError(
+            f"Invalid Bitget candle format for {symbol}"
+        )
+
+    try:
+        rows.sort(key=lambda candle: int(candle[0]))
+    except (TypeError, ValueError, IndexError) as exc:
+        raise ValueError(
+            f"Invalid Bitget candle timestamps for {symbol}"
+        ) from exc
+
+    return rows
 
 def calculate_ema(values, period):
     if not values:
@@ -754,7 +724,7 @@ def send_discord(message):
 
 
 def main():
-    print("Crypto Signal Bot V3 - Bybit USDT Perpetual data")
+    print("Crypto Signal Bot V3 - Bitget USDT Perpetual data")
     messages = []
 
     for symbol in COINS:
@@ -796,7 +766,7 @@ def main():
 
             messages.append(
                 f"**{symbol}**\n"
-                f"📡 Data: Bybit USDT Perpetual\n"
+                f"📡 Data: Bitget USDT Perpetual\n"
                 f"💰 Entry: {price:.8g}\n"
                 f"📈 Trend: {result['trend']}\n"
                 f"📊 RSI: {result['rsi']:.2f}\n"
