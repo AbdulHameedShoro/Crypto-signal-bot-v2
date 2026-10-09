@@ -685,6 +685,7 @@ def get_signal(symbol):
     # Final candle/quality guard: accept a confirmed candle pattern too.
     
     # Final candle/quality guard: accept a confirmed candle pattern too.
+    
     if kind == "BUY" and (
         buy_quality < MIN_QUALITY_SCORE
         or not (bull_candle_ok or bull_pattern_confirmed)
@@ -699,14 +700,6 @@ def get_signal(symbol):
     ):
         kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
                                                     
-
-    elif kind == "SELL" and (
-    sell_quality < MIN_QUALITY_SCORE
-    or not (bear_candle_ok or bear_pattern_confirmed)
-    or vol_weak
-    ):
-    kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
-
     if kind == "BUY":
         entry_quality_score = buy_quality
     elif kind == "SELL":
