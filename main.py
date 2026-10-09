@@ -7,7 +7,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ZENUSDT","ZECUSDT"]
 
 # Binance USDⓈ-M Futures
-BINANCE_URL = "https://api.binance.com"
+BINANCE_URL = "https://data-api.binance.vision"
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 200
 
