@@ -683,6 +683,7 @@ def get_signal(symbol):
 
     # Final candle/quality guard. Lowered from 70 to 65 to avoid over-filtering.
     # Final candle/quality guard: accept a confirmed candle pattern too.
+
 if kind == "BUY" and (
     buy_quality < MIN_QUALITY_SCORE
     or not (bull_candle_ok or bull_pattern_confirmed)
