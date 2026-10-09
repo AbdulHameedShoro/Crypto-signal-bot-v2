@@ -31,48 +31,92 @@ MIN_QUALITY_SCORE = 65
 
 def get_klines(symbol):
     """Return Bybit linear USDT perpetual candles in chronological order."""
-    response = requests.get(
-        f"{BYBIT_URL}/v5/market/kline",
-        params={
-            "category": "linear",
-            "symbol": symbol,
-            "interval": TIMEFRAME,
-            "limit": CANDLE_LIMIT,
-        },
-        timeout=TIMEOUT,
+
+    base_urls = [
+        BYBIT_URL,
+        "https://api.bytick.com",
+    ]
+
+    last_error = None
+
+    for base_url in dict.fromkeys(base_urls):
+        try:
+            response = requests.get(
+                f"{base_url}/v5/market/kline",
+                params={
+                    "category": "linear",
+                    "symbol": symbol,
+                    "interval": TIMEFRAME,
+                    "limit": CANDLE_LIMIT,
+                },
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=TIMEOUT,
+            )
+
+            if response.status_code == 403:
+                last_error = (
+                    f"Bybit access forbidden (HTTP 403) "
+                    f"from {base_url}: {response.text[:200]}"
+                )
+                continue
+
+            response.raise_for_status()
+
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid JSON from {base_url} for {symbol}: "
+                    f"{response.text[:200]}"
+                ) from exc
+
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"Unexpected API response for {symbol}"
+                )
+
+            if payload.get("retCode") != 0:
+                raise ValueError(
+                    f"Bybit API error for {symbol}: "
+                    f"{payload.get('retCode')} | "
+                    f"{payload.get('retMsg')}"
+                )
+
+            result = payload.get("result")
+            rows = result.get("list") if isinstance(result, dict) else None
+
+            if not isinstance(rows, list) or len(rows) < 60:
+                raise ValueError(
+                    f"Not enough Futures candle data for {symbol}"
+                )
+
+            if not all(
+                isinstance(candle, (list, tuple)) and len(candle) >= 6
+                for candle in rows
+            ):
+                raise ValueError(
+                    f"Invalid candle format for {symbol}"
+                )
+
+            try:
+                rows.sort(key=lambda candle: int(candle[0]))
+            except (TypeError, ValueError, IndexError) as exc:
+                raise ValueError(
+                    f"Invalid candle timestamps for {symbol}"
+                ) from exc
+
+            return rows
+
+        except requests.RequestException as exc:
+            last_error = f"{base_url}: {type(exc).__name__}: {exc}"
+
+    raise RuntimeError(
+        f"Could not fetch Bybit Futures candles for {symbol}. "
+        f"Last error: {last_error}"
     )
-    response.raise_for_status()
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise ValueError(
-            f"Bybit returned invalid JSON for {symbol}: {response.text[:250]}"
-        ) from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Bybit returned an unexpected response for {symbol}")
-
-    if payload.get("retCode") != 0:
-        raise ValueError(
-            f"Bybit API error for {symbol}: "
-            f"{payload.get('retCode')} | {payload.get('retMsg')}"
-        )
-
-    result = payload.get("result")
-    rows = result.get("list") if isinstance(result, dict) else None
-    if not isinstance(rows, list) or len(rows) < 60:
-        raise ValueError(f"Not enough Bybit Futures candle data for {symbol}")
-    if not all(isinstance(candle, (list, tuple)) and len(candle) >= 6 for candle in rows):
-        raise ValueError(f"Bybit candle format is invalid for {symbol}")
-
-    # Bybit returns newest candle first; calculations require oldest first.
-    try:
-        rows.sort(key=lambda candle: int(candle[0]))
-    except (TypeError, ValueError, IndexError) as exc:
-        raise ValueError(f"Bybit candle timestamps are invalid for {symbol}") from exc
-    return rows
-
 
 def calculate_ema(values, period):
     if not values:
