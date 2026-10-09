@@ -492,12 +492,16 @@ def get_signal(symbol):
         else:
             candle_status = "Not Confirmed"
 
-    if kind in ("BUY", "SELL") and ideal_entry_distance:
+    
+    if kind == "WAIT":
+        entry_timing = "Not Applicable"
+    elif ideal_entry_distance:
         entry_timing = "Ideal"
-    elif kind in ("BUY", "SELL") and not (late_buy or late_sell):
+    elif not (late_buy or late_sell):
         entry_timing = "Acceptable"
     else:
         entry_timing = "Late"
+    
     if kind == "BUY":
         reasons = ["Bullish trend", "EMA alignment", "RSI momentum", "ADX strength"]
         if vol_strong: reasons.append("Volume confirmation")
