@@ -235,8 +235,7 @@ def quality_grade(score):
     return "C"
 
 
-def get_signal(symbol):
-    
+def get_signal(symbol):    
 candles = get_klines(symbol)
 
 # Keep only fully closed 15-minute Bitget candles.
