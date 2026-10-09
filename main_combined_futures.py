@@ -688,6 +688,7 @@ def get_signal(symbol):
     or not (bull_candle_ok or bull_pattern_confirmed)
     or vol_weak
     ):
+        
     kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
 
     elif kind == "SELL" and (
