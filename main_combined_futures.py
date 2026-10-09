@@ -236,19 +236,19 @@ def quality_grade(score):
 
 
 def get_signal(symbol):    
-candles = get_klines(symbol)
+    candles = get_klines(symbol)
 
-# Keep only fully closed 15-minute Bitget candles.
-now_ms = int(time.time() * 1000)
-candle_duration_ms = 15 * 60 * 1000
+    # Keep only fully closed 15-minute Bitget candles.
+    now_ms = int(time.time() * 1000)
+    candle_duration_ms = 15 * 60 * 1000
 
-closed = [
-    candle for candle in candles
-    if int(candle[0]) + candle_duration_ms <= now_ms
-]
+    closed = [
+        candle for candle in candles
+        if int(candle[0]) + candle_duration_ms <= now_ms
+    ]
 
     if len(closed) < 60:
-        raise ValueError(f"Not enough closed candles for {symbol}")
+        return None
 
     opens = [float(c[1]) for c in closed]
     highs = [float(c[2]) for c in closed]
