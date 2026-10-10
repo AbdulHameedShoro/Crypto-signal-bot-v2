@@ -804,58 +804,6 @@ def get_signal(symbol):
         )
         entry_timing = "Not Applicable"
     
-        
-        )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
-
-    else:
-        entry_setup = "No Confirmed Setup"
-        candle_status = (
-            "Partial Confirmation"
-            if bull_candle_ok or bear_candle_ok
-            else "Not Confirmed"
-        )
-        entry_timing = "Not Applicable"
-    
-        entry_setup = "Breakout + Retest"
-        elif bull_retest:
-            entry_setup = "Breakout Retest"
-        elif bull_break:
-            entry_setup = "Breakout"
-        elif bull_structure:
-            entry_setup = "Bullish Structure"
-        else:
-            entry_setup = "Trend Continuation"
-        candle_status = (
-            "Strong Bullish Candle" if bullish_candle_confirmation
-            else "Bullish Rejection" if bullish_rejection
-            else "Not Confirmed"
-        )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
-    elif kind == "SELL":
-        if bear_break and bear_retest:
-            entry_setup = "Breakdown + Retest"
-        elif bear_retest:
-            entry_setup = "Breakdown Retest"
-        elif bear_break:
-            entry_setup = "Breakdown"
-        elif bear_structure:
-            entry_setup = "Bearish Structure"
-        else:
-            entry_setup = "Trend Continuation"
-        candle_status = (
-            "Strong Bearish Candle" if bearish_candle_confirmation
-            else "Bearish Rejection" if bearish_rejection
-            else "Not Confirmed"
-        )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
-    else:
-        entry_setup = "No Confirmed Setup"
-        candle_status = (
-            "Partial Confirmation" if bull_candle_ok or bear_candle_ok
-            else "Not Confirmed"
-        )
-        entry_timing = "Not Applicable"
 
     if kind == "BUY":
         reasons = ["Bullish EMA alignment", "RSI confirmation"]
