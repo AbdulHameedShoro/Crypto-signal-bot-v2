@@ -710,39 +710,41 @@ def get_signal(symbol):
 # Final quality guard: keep weak-volume and low-quality protection,
 # but allow a strong setup to qualify without a perfect signal candle.
 
-if kind == "BUY" and (
-    buy_quality < MIN_QUALITY_SCORE
-    or vol_weak
-    or (
-        not (bull_candle_ok or bull_pattern_confirmed)
-        and buy_quality < 65
-    )
-):
-    kind, signal, score = (
-        "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
-    )
 
-elif kind == "SELL" and (
-    sell_quality < MIN_QUALITY_SCORE
-    or vol_weak
-    or (
-        not (bear_candle_ok or bear_pattern_confirmed)
-        and sell_quality < 65
-    )
-):
-    kind, signal, score = (
-        "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
-    )
+    # Final quality guard: keep weak-volume and low-quality protection.
+    # Allow strong setups without requiring a perfect signal candle.
 
-                                                     
+    if kind == "BUY" and (
+        buy_quality < MIN_QUALITY_SCORE
+        or vol_weak
+        or (
+            not (bull_candle_ok or bull_pattern_confirmed)
+            and buy_quality < 65
+        )
+    ):
+        kind, signal, score = (
+            "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+        )
+
+    elif kind == "SELL" and (
+        sell_quality < MIN_QUALITY_SCORE
+        or vol_weak
+        or (
+            not (bear_candle_ok or bear_pattern_confirmed)
+            and sell_quality < 65
+        )
+    ):
+        kind, signal, score = (
+            "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+        )
+
     if kind == "BUY":
         entry_quality_score = buy_quality
     elif kind == "SELL":
         entry_quality_score = sell_quality
     else:
         entry_quality_score = max(buy_quality, sell_quality)
-    entry_quality = quality_grade(entry_quality_score)
-
+        
     if kind == "BUY":
         if bull_break and bull_retest:
             entry_setup = "Breakout + Retest"
