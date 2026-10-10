@@ -11,7 +11,6 @@ COINS = [
 ]
 
 # Public USDT perpetual market data from Bybit.
-# This is Bybit Futures data, NOT Binance Futures data.
 BITGET_URL = "https://api.bitget.com"
 TIMEFRAME = "15m"          # Bybit interval: 15 minutes
 CANDLE_LIMIT = 200
@@ -738,17 +737,63 @@ def get_signal(symbol):
             "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
         )
 
+    
     if kind == "BUY":
         entry_quality_score = buy_quality
     elif kind == "SELL":
         entry_quality_score = sell_quality
     else:
         entry_quality_score = max(buy_quality, sell_quality)
-            
-        entry_quality = quality_grade(entry_quality_score)
-    
-        if kind == "BUY":
+
+    entry_quality = quality_grade(entry_quality_score)
+
+    if kind == "BUY":
         if bull_break and bull_retest:
+            entry_setup = "Breakout + Retest"
+        elif bull_retest:
+            entry_setup = "Breakout Retest"
+        elif bull_break:
+            entry_setup = "Breakout"
+        elif bull_structure:
+            entry_setup = "Bullish Structure"
+        else:
+            entry_setup = "Trend Continuation"
+
+        candle_status = (
+            "Strong Bullish Candle" if bullish_candle_confirmation
+            else "Bullish Rejection" if bullish_rejection
+            else "Not Confirmed"
+        )
+        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
+
+    elif kind == "SELL":
+        if bear_break and bear_retest:
+            entry_setup = "Breakdown + Retest"
+        elif bear_retest:
+            entry_setup = "Breakdown Retest"
+        elif bear_break:
+            entry_setup = "Breakdown"
+        elif bear_structure:
+            entry_setup = "Bearish Structure"
+        else:
+            entry_setup = "Trend Continuation"
+
+        candle_status = (
+            "Strong Bearish Candle" if bearish_candle_confirmation
+            else "Bearish Rejection" if bearish_rejection
+            else "Not Confirmed"
+        )
+        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
+
+    else:
+        entry_setup = "No Confirmed Setup"
+        candle_status = (
+            "Partial Confirmation"
+            if bull_candle_ok or bear_candle_ok
+            else "Not Confirmed"
+        )
+        entry_timing = "Not Applicable"
+    
             entry_setup = "Breakout + Retest"
         elif bull_retest:
             entry_setup = "Breakout Retest"
