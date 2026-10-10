@@ -794,7 +794,7 @@ def get_signal(symbol):
         )
         entry_timing = "Not Applicable"
     
-            entry_setup = "Breakout + Retest"
+        entry_setup = "Breakout + Retest"
         elif bull_retest:
             entry_setup = "Breakout Retest"
         elif bull_break:
