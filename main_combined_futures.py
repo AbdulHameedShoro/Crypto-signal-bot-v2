@@ -505,6 +505,14 @@ def get_signal(symbol):
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
+    
+    trend_1h = get_higher_timeframe_trend(
+        symbol, "1H", 60 * 60 * 1000
+    )
+    trend_4h = get_higher_timeframe_trend(
+        symbol, "4H", 4 * 60 * 60 * 1000
+    )
+    
     atr = calculate_atr(highs, lows, closes)
     adx, pdi, mdi = calculate_adx(highs, lows, closes)
 
@@ -959,6 +967,8 @@ def get_signal(symbol):
         "price": price,
         "ema20": ema20,
         "ema50": ema50,
+        "trend_1h": trend_1h,
+        "trend_4h": trend_4h,
         "rsi": rsi,
         "adx": adx,
         "plus_di": pdi,
