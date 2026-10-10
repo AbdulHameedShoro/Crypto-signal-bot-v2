@@ -88,6 +88,58 @@ def get_klines(symbol):
 
     return rows
 
+def get_higher_timeframe_trend(symbol, granularity, duration_ms):
+    """Get trend from fully closed 1H or 4H Bitget candles."""
+    try:
+        response = requests.get(
+            f"{BITGET_URL}/api/v2/mix/market/candles",
+            params={
+                "symbol": symbol,
+                "productType": "USDT-FUTURES",
+                "granularity": granularity,
+                "limit": "100",
+            },
+            headers={"Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        if not isinstance(payload, dict) or payload.get("code") != "00000":
+            return "UNKNOWN"
+
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            return "UNKNOWN"
+
+        now_ms = int(time.time() * 1000)
+        closed = [
+            candle for candle in rows
+            if isinstance(candle, (list, tuple))
+            and len(candle) >= 6
+            and int(candle[0]) + duration_ms <= now_ms
+        ]
+
+        closed.sort(key=lambda candle: int(candle[0]))
+
+        if len(closed) < 55:
+            return "UNKNOWN"
+
+        closes = [float(candle[4]) for candle in closed]
+        price = closes[-1]
+        ema20 = calculate_ema(closes, 20)
+        ema50 = calculate_ema(closes, 50)
+
+        if price > ema20 > ema50:
+            return "BULLISH"
+        if price < ema20 < ema50:
+            return "BEARISH"
+        return "NEUTRAL"
+
+    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
+        print(f"Higher timeframe error {symbol} {granularity}: {error}")
+        return "UNKNOWN"
+        
 def calculate_ema(values, period):
     if not values:
         return 0.0
