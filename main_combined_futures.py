@@ -873,6 +873,7 @@ def get_signal(symbol):
     else:
         trend = "Neutral"
 
+    
     print(
         f"DEBUG {symbol} | "
         f"BUY={buy} SELL={sell} | "
@@ -882,14 +883,25 @@ def get_signal(symbol):
         f"SELL_CONFIRM={sell_confirm} | "
         f"ROOM_BUY={enough_buy} "
         f"ROOM_SELL={enough_sell} | "
-        f"LATE_BUY={late_buy} "
-        f"LATE_SELL={late_sell} | "
+        f"BUY_ROOM_RR={buy_room_rr:.2f} "
+        f"SELL_ROOM_RR={sell_room_rr:.2f} | "
+        f"BUY_OBSTACLE={buy_obstacle} "
+        f"SELL_OBSTACLE={sell_obstacle} | "
+        f"BULL_EMA={bull_ema} "
+        f"BEAR_EMA={bear_ema} | "
+        f"BULL_STRUCTURE={bull_structure} "
+        f"BEAR_STRUCTURE={bear_structure} | "
+        f"BULL_EARLY={bull_early_path} "
+        f"BEAR_EARLY={bear_early_path} | "
+        f"BULL_RSI_OK={bull_rsi_ok} "
+        f"BEAR_RSI_OK={bear_rsi_ok} | "
         f"BULL_CANDLE={bull_candle_ok} "
         f"BEAR_CANDLE={bear_candle_ok} | "
         f"BUY_QUALITY={buy_quality} "
         f"SELL_QUALITY={sell_quality} | "
         f"WEAK_VOL={vol_weak}"
     )
+    
         
     return {
         "price": price,
