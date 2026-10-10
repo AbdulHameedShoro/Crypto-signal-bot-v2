@@ -748,6 +748,7 @@ def get_signal(symbol):
     
     entry_quality = quality_grade(entry_quality_score)
 
+    
     if kind == "BUY":
         if bull_break and bull_retest:
             entry_setup = "Breakout + Retest"
@@ -761,11 +762,15 @@ def get_signal(symbol):
             entry_setup = "Trend Continuation"
 
         candle_status = (
-            "Strong Bullish Candle" if bullish_candle_confirmation
-            else "Bullish Rejection" if bullish_rejection
+            "Strong Bullish Candle"
+            if bullish_candle_confirmation
+            else "Bullish Rejection"
+            if bullish_rejection
             else "Not Confirmed"
         )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
+        entry_timing = (
+            "Ideal" if dist_ema <= 1.0 else "Acceptable"
+        )
 
     elif kind == "SELL":
         if bear_break and bear_retest:
@@ -780,11 +785,15 @@ def get_signal(symbol):
             entry_setup = "Trend Continuation"
 
         candle_status = (
-            "Strong Bearish Candle" if bearish_candle_confirmation
-            else "Bearish Rejection" if bearish_rejection
+            "Strong Bearish Candle"
+            if bearish_candle_confirmation
+            else "Bearish Rejection"
+            if bearish_rejection
             else "Not Confirmed"
         )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
+        entry_timing = (
+            "Ideal" if dist_ema <= 1.0 else "Acceptable"
+        )
 
     else:
         entry_setup = "No Confirmed Setup"
@@ -794,6 +803,7 @@ def get_signal(symbol):
             else "Not Confirmed"
         )
         entry_timing = "Not Applicable"
+    
         
         )
         entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
