@@ -707,20 +707,34 @@ def get_signal(symbol):
     
     # Final candle/quality guard: accept a confirmed candle pattern too.
     
-    if kind == "BUY" and (
-        buy_quality < MIN_QUALITY_SCORE
-        or not (bull_candle_ok or bull_pattern_confirmed)
-        or vol_weak
-    ):
-        kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+# Final quality guard: keep weak-volume and low-quality protection,
+# but allow a strong setup to qualify without a perfect signal candle.
 
-    elif kind == "SELL" and (
-        sell_quality < MIN_QUALITY_SCORE
-        or not (bear_candle_ok or bear_pattern_confirmed)
-        or vol_weak
-    ):
-        kind, signal, score = "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
-                                                    
+if kind == "BUY" and (
+    buy_quality < MIN_QUALITY_SCORE
+    or vol_weak
+    or (
+        not (bull_candle_ok or bull_pattern_confirmed)
+        and buy_quality < 65
+    )
+):
+    kind, signal, score = (
+        "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+    )
+
+elif kind == "SELL" and (
+    sell_quality < MIN_QUALITY_SCORE
+    or vol_weak
+    or (
+        not (bear_candle_ok or bear_pattern_confirmed)
+        and sell_quality < 65
+    )
+):
+    kind, signal, score = (
+        "WAIT", "🟡 WAIT", min(max(buy, sell), 84)
+    )
+
+                                                     
     if kind == "BUY":
         entry_quality_score = buy_quality
     elif kind == "SELL":
@@ -839,6 +853,24 @@ def get_signal(symbol):
     else:
         trend = "Neutral"
 
+    print(
+        f"DEBUG {symbol} | "
+        f"BUY={buy} SELL={sell} | "
+        f"RSI={rsi:.1f} ADX={adx:.1f} "
+        f"VOL={vol_ratio:.2f} | "
+        f"BUY_CONFIRM={buy_confirm} "
+        f"SELL_CONFIRM={sell_confirm} | "
+        f"ROOM_BUY={enough_buy} "
+        f"ROOM_SELL={enough_sell} | "
+        f"LATE_BUY={late_buy} "
+        f"LATE_SELL={late_sell} | "
+        f"BULL_CANDLE={bull_candle_ok} "
+        f"BEAR_CANDLE={bear_candle_ok} | "
+        f"BUY_QUALITY={buy_quality} "
+        f"SELL_QUALITY={sell_quality} | "
+        f"WEAK_VOL={vol_weak}"
+    )
+        
     return {
         "price": price,
         "ema20": ema20,
