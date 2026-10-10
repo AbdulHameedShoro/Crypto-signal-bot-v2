@@ -1128,6 +1128,8 @@ def main():
                 f"📡 Data: Bitget USDT Perpetual\n"
                 f"💰 Entry: {price:.8g}\n"
                 f"📈 Trend: {result['trend']}\n"
+                f"🕐 1H Trend: {result['trend_1h']}\n"
+                f"🕓 4H Trend: {result['trend_4h']}\n"
                 f"📊 RSI: {result['rsi']:.2f}\n"
                 f"〽️ EMA20: {result['ema20']:.8g}\n"
                 f"〽️ EMA50: {result['ema50']:.8g}\n"
