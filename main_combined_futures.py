@@ -744,8 +744,10 @@ def get_signal(symbol):
         entry_quality_score = sell_quality
     else:
         entry_quality_score = max(buy_quality, sell_quality)
-        
-    if kind == "BUY":
+            
+        entry_quality = quality_grade(entry_quality_score)
+    
+        if kind == "BUY":
         if bull_break and bull_retest:
             entry_setup = "Breakout + Retest"
         elif bull_retest:
