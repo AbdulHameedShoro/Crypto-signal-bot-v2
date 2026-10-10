@@ -745,6 +745,7 @@ def get_signal(symbol):
     else:
         entry_quality_score = max(buy_quality, sell_quality)
 
+    
     entry_quality = quality_grade(entry_quality_score)
 
     if kind == "BUY":
@@ -782,6 +783,18 @@ def get_signal(symbol):
             "Strong Bearish Candle" if bearish_candle_confirmation
             else "Bearish Rejection" if bearish_rejection
             else "Not Confirmed"
+        )
+        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
+
+    else:
+        entry_setup = "No Confirmed Setup"
+        candle_status = (
+            "Partial Confirmation"
+            if bull_candle_ok or bear_candle_ok
+            else "Not Confirmed"
+        )
+        entry_timing = "Not Applicable"
+        
         )
         entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
 
