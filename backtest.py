@@ -1,5 +1,3 @@
-
-
 import csv
 import time
 from datetime import datetime, timedelta, timezone
@@ -11,16 +9,31 @@ BASE_URL = "https://api.bitget.com"
 PRODUCT_TYPE = "USDT-FUTURES"
 GRANULARITY = "15m"
 CANDLE_MS = 15 * 60 * 1000
+DAY_MS = 24 * 60 * 60 * 1000
 
 DAYS_BACK = 30
 PAGE_LIMIT = 200
 MIN_BARS = 100
 
-# Estimated costs per side. Adjust to your actual fee tier.
 FEE_RATE = 0.0006
 SLIPPAGE_RATE = 0.0002
-
 TIMEOUT = 15
+
+RESULTS_FILE = "backtest_results.csv"
+SUMMARY_FILE = "backtest_summary.csv"
+
+TRADE_FIELDS = [
+    "symbol", "side", "status", "signal_time_utc",
+    "entry_time_utc", "entry", "stop_loss", "tp1", "tp2",
+    "exit", "outcome", "signal_score", "quality_score",
+    "gross_return_pct", "net_return_pct", "bars_held",
+]
+
+
+def utc_time(timestamp_ms):
+    return datetime.fromtimestamp(
+        timestamp_ms / 1000, tz=timezone.utc
+    ).isoformat()
 
 
 def fetch_history(symbol):
@@ -29,110 +42,123 @@ def fetch_history(symbol):
         (datetime.now(timezone.utc) -
          timedelta(days=DAYS_BACK)).timestamp() * 1000
     )
-    end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-
+    end_ms = int(time.time() * 1000)
     all_rows = {}
-    session = requests.Session()
 
-    while end_ms > cutoff_ms:
-        response = session.get(
-            f"{BASE_URL}/api/v2/mix/market/history-candles",
-            params={
-                "symbol": symbol,
-                "productType": PRODUCT_TYPE,
-                "granularity": GRANULARITY,
-                "limit": str(PAGE_LIMIT),
-                "endTime": str(end_ms),
-            },
-            timeout=TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-        if not isinstance(payload, dict):
-            raise ValueError("Unexpected API response")
-
-        if payload.get("code") != "00000":
-            raise ValueError(
-                f"Bitget API error: {payload.get('code')} "
-                f"{payload.get('msg')}"
+    with requests.Session() as session:
+        while end_ms > cutoff_ms:
+            response = session.get(
+                f"{BASE_URL}/api/v2/mix/market/history-candles",
+                params={
+                    "symbol": symbol,
+                    "productType": PRODUCT_TYPE,
+                    "granularity": GRANULARITY,
+                    "limit": str(PAGE_LIMIT),
+                    "endTime": str(end_ms),
+                },
+                headers={"Accept": "application/json"},
+                timeout=TIMEOUT,
             )
+            response.raise_for_status()
+            payload = response.json()
 
-        rows = payload.get("data", [])
+            if not isinstance(payload, dict):
+                raise ValueError("Unexpected Bitget API response")
 
-        if not rows:
-            break
+            if payload.get("code") != "00000":
+                raise ValueError(
+                    f"Bitget API error: {payload.get('code')} "
+                    f"{payload.get('msg')}"
+                )
 
-        valid_rows = []
-        for row in rows:
-            if not isinstance(row, (list, tuple)) or len(row) < 6:
-                continue
-            try:
-                timestamp = int(row[0])
+            rows = payload.get("data", [])
+            if not rows:
+                break
+
+            valid_timestamps = []
+
+            for row in rows:
+                if not isinstance(row, (list, tuple)) or len(row) < 6:
+                    continue
+
+                try:
+                    timestamp = int(row[0])
+                except (TypeError, ValueError):
+                    continue
+
+                valid_timestamps.append(timestamp)
+
                 if cutoff_ms <= timestamp:
-                    valid_rows.append(row)
-            except (TypeError, ValueError):
-                continue
+                    all_rows[timestamp] = row
 
-        for row in valid_rows:
-            all_rows[int(row[0])] = row
+            if not valid_timestamps:
+                break
 
-        oldest = min(int(row[0]) for row in rows)
+            oldest = min(valid_timestamps)
 
-        if oldest <= cutoff_ms:
-            break
+            if oldest <= cutoff_ms or oldest >= end_ms:
+                break
 
-        if oldest >= end_ms:
-            break
+            end_ms = oldest - 1
+            time.sleep(0.15)
 
-        end_ms = oldest - 1
-        time.sleep(0.15)
-
-    session.close()
+    now_ms = int(time.time() * 1000)
 
     candles = [
         all_rows[timestamp]
         for timestamp in sorted(all_rows)
-    ]
-
-    # Never use a still-open candle.
-    now_ms = int(time.time() * 1000)
-    candles = [
-        row for row in candles
-        if int(row[0]) + CANDLE_MS <= now_ms
+        if timestamp + CANDLE_MS <= now_ms
     ]
 
     if len(candles) < MIN_BARS:
         raise ValueError(
-            f"Only {len(candles)} historical candles available"
+            f"Only {len(candles)} closed candles available"
         )
 
-    print(
-        f"{symbol}: downloaded {len(candles)} closed candles"
-    )
+    print(f"{symbol}: downloaded {len(candles)} closed candles")
     return candles
 
 
 def backtest_symbol(symbol, candles):
-    """Reuse the existing strategy without live data look-ahead."""
+    """Test the strategy using only information available at each candle."""
 
     trades = []
     index = MIN_BARS
+    current_index = [0]
 
-    # get_signal() will only see candles available at that moment.
     def historical_klines(requested_symbol):
         if requested_symbol != symbol:
             raise ValueError("Unexpected symbol")
         return candles[:current_index[0] + 1]
 
-    # Disable live higher-timeframe requests during historical testing.
-    # The current strategy does not use these values to approve trades.
+    def historical_previous_day_levels(rows):
+        """Use the previous UTC day relative to the simulated candle."""
+        if not rows:
+            return None, None
+
+        latest_ms = int(rows[-1][0])
+        current_day_start = (latest_ms // DAY_MS) * DAY_MS
+        previous_day_start = current_day_start - DAY_MS
+
+        previous_day = [
+            row for row in rows
+            if previous_day_start <= int(row[0]) < current_day_start
+        ]
+
+        if not previous_day:
+            return None, None
+
+        return (
+            max(float(row[2]) for row in previous_day),
+            min(float(row[3]) for row in previous_day),
+        )
+
+    # Replace live-data functions only during this backtest.
     bot.get_klines = historical_klines
+    bot.get_previous_day_levels = historical_previous_day_levels
     bot.get_higher_timeframe_trend = (
         lambda symbol, granularity, duration_ms: "UNKNOWN"
     )
-
-    current_index = [0]
 
     while index < len(candles) - 1:
         current_index[0] = index
@@ -148,14 +174,13 @@ def backtest_symbol(symbol, candles):
             index += 1
             continue
 
-        signal = result["signal"]
+        signal = result.get("signal")
 
         if signal not in ("🟢 BUY", "🔴 SELL"):
             index += 1
             continue
 
-        # Signal is generated after candle[index] closes.
-        # Simulate entry at the next candle's open.
+        # Signal appears after candle close; entry is next candle open.
         entry_index = index + 1
         entry = float(candles[entry_index][1])
 
@@ -178,7 +203,6 @@ def backtest_symbol(symbol, candles):
         outcome = None
         exit_index = None
 
-        # TP1 is the primary test target.
         for j in range(entry_index, len(candles)):
             high = float(candles[j][2])
             low = float(candles[j][3])
@@ -190,7 +214,7 @@ def backtest_symbol(symbol, candles):
                 stop_hit = high >= sl
                 target_hit = low <= tp1
 
-            # Conservative assumption if both are hit in one candle.
+            # Conservative rule if SL and TP1 occur in the same candle.
             if stop_hit:
                 exit_price = sl
                 outcome = "SL"
@@ -203,10 +227,49 @@ def backtest_symbol(symbol, candles):
                 exit_index = j
                 break
 
+        if is_buy:
+            side = "BUY"
+        else:
+            side = "SELL"
+
         if exit_price is None:
-            # Still-open trades are not counted as completed.
-            index += 1
-            continue
+            # The trade remains open: do not start another trade.
+            last_index = len(candles) - 1
+            mark_price = float(candles[last_index][4])
+
+            if is_buy:
+                gross_return = (mark_price - entry) / entry
+            else:
+                gross_return = (entry - mark_price) / entry
+
+            trades.append({
+                "symbol": symbol,
+                "side": side,
+                "status": "OPEN",
+                "signal_time_utc": utc_time(int(candles[index][0])),
+                "entry_time_utc": utc_time(
+                    int(candles[entry_index][0])
+                ),
+                "entry": round(entry, 8),
+                "stop_loss": round(sl, 8),
+                "tp1": round(tp1, 8),
+                "tp2": round(tp2, 8),
+                "exit": round(mark_price, 8),
+                "outcome": "OPEN",
+                "signal_score": result["signal_score"],
+                "quality_score": result["entry_quality_score"],
+                "gross_return_pct": round(gross_return * 100, 4),
+                "net_return_pct": round(
+                    (gross_return - 2 * (FEE_RATE + SLIPPAGE_RATE))
+                    * 100, 4
+                ),
+                "bars_held": last_index - entry_index + 1,
+            })
+
+            print(
+                f"{symbol}: trade remains OPEN at end of historical data"
+            )
+            break
 
         if is_buy:
             gross_return = (exit_price - entry) / entry
@@ -218,15 +281,12 @@ def backtest_symbol(symbol, candles):
 
         trades.append({
             "symbol": symbol,
-            "side": "BUY" if is_buy else "SELL",
-            "signal_time_utc": datetime.fromtimestamp(
-                int(candles[index][0]) / 1000,
-                tz=timezone.utc,
-            ).isoformat(),
-            "entry_time_utc": datetime.fromtimestamp(
-                int(candles[entry_index][0]) / 1000,
-                tz=timezone.utc,
-            ).isoformat(),
+            "side": side,
+            "status": "CLOSED",
+            "signal_time_utc": utc_time(int(candles[index][0])),
+            "entry_time_utc": utc_time(
+                int(candles[entry_index][0])
+            ),
             "entry": round(entry, 8),
             "stop_loss": round(sl, 8),
             "tp1": round(tp1, 8),
@@ -240,63 +300,90 @@ def backtest_symbol(symbol, candles):
             "bars_held": exit_index - entry_index + 1,
         })
 
-        # Do not open another trade while this simulated trade is active.
+        # No overlapping simulated trades.
         index = exit_index + 1
 
     return trades
 
 
 def save_report(trades):
-    filename = "backtest_results.csv"
-
-    if not trades:
-        print("No completed trades. No CSV report created.")
-        return
-
-    with open(filename, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file, fieldnames=list(trades[0].keys())
-        )
+    # Always create the detailed CSV, even if no trades were completed.
+    with open(RESULTS_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=TRADE_FIELDS)
         writer.writeheader()
         writer.writerows(trades)
 
-    wins = sum(t["net_return_pct"] > 0 for t in trades)
-    losses = len(trades) - wins
-    tp1_hits = sum(t["outcome"] == "TP1" for t in trades)
-    sl_hits = sum(t["outcome"] == "SL" for t in trades)
+    closed = [t for t in trades if t["status"] == "CLOSED"]
+    open_trades = [t for t in trades if t["status"] == "OPEN"]
 
-    net_sum = sum(t["net_return_pct"] for t in trades)
+    wins = sum(t["net_return_pct"] > 0 for t in closed)
+    losses = len(closed) - wins
+    tp1_hits = sum(t["outcome"] == "TP1" for t in closed)
+    sl_hits = sum(t["outcome"] == "SL" for t in closed)
 
     equity = 1.0
     peak = 1.0
     max_drawdown = 0.0
 
-    for trade in trades:
+    for trade in closed:
         equity *= 1 + trade["net_return_pct"] / 100
         peak = max(peak, equity)
-        drawdown = (peak - equity) / peak
-        max_drawdown = max(max_drawdown, drawdown)
+        max_drawdown = max(
+            max_drawdown, (peak - equity) / peak
+        )
 
-    win_rate = wins / len(trades) * 100
+    win_rate = wins / len(closed) * 100 if closed else 0.0
+    net_sum = sum(t["net_return_pct"] for t in closed)
 
     print("\n===== BACKTEST SUMMARY =====")
-    print(f"Completed trades: {len(trades)}")
-    print(f"Profitable trades after estimated costs: {wins}")
-    print(f"Losing trades after estimated costs: {losses}")
+    print(f"Completed trades: {len(closed)}")
+    print(f"Open trades at end: {len(open_trades)}")
+    print(f"Profitable closed trades after estimated costs: {wins}")
+    print(f"Losing closed trades after estimated costs: {losses}")
     print(f"TP1 hits: {tp1_hits}")
     print(f"SL hits: {sl_hits}")
     print(f"Net win rate: {win_rate:.2f}%")
     print(f"Sum of net trade returns: {net_sum:.2f}%")
     print(f"Compounded return: {(equity - 1) * 100:.2f}%")
     print(f"Maximum drawdown: {max_drawdown * 100:.2f}%")
-    print(f"Estimated round-trip costs: "
-          f"{2 * (FEE_RATE + SLIPPAGE_RATE) * 100:.3f}%")
-    print(f"Detailed report: {filename}")
+    print(
+        "Estimated round-trip costs: "
+        f"{2 * (FEE_RATE + SLIPPAGE_RATE) * 100:.3f}%"
+    )
+
+    summary = [{
+        "timeframe": GRANULARITY,
+        "lookback_days": DAYS_BACK,
+        "completed_trades": len(closed),
+        "open_trades_at_end": len(open_trades),
+        "profitable_trades": wins,
+        "losing_trades": losses,
+        "tp1_hits": tp1_hits,
+        "sl_hits": sl_hits,
+        "net_win_rate_pct": round(win_rate, 2),
+        "sum_net_returns_pct": round(net_sum, 2),
+        "compounded_return_pct": round((equity - 1) * 100, 2),
+        "max_drawdown_pct": round(max_drawdown * 100, 2),
+        "estimated_round_trip_cost_pct": round(
+            2 * (FEE_RATE + SLIPPAGE_RATE) * 100, 3
+        ),
+    }]
+
+    with open(SUMMARY_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file, fieldnames=list(summary[0].keys())
+        )
+        writer.writeheader()
+        writer.writerows(summary)
+
+    print(f"Detailed report: {RESULTS_FILE}")
+    print(f"Summary report: {SUMMARY_FILE}")
 
 
 def main():
     print("Historical Backtest - Bitget USDT Perpetual")
     print(f"Timeframe: {GRANULARITY} | Lookback: {DAYS_BACK} days")
+
     all_trades = []
 
     for symbol in bot.COINS:
@@ -305,7 +392,11 @@ def main():
             candles = fetch_history(symbol)
             trades = backtest_symbol(symbol, candles)
             all_trades.extend(trades)
-            print(f"{symbol}: completed trades = {len(trades)}")
+            print(
+                f"{symbol}: completed="
+                f"{sum(t['status'] == 'CLOSED' for t in trades)}, "
+                f"open={sum(t['status'] == 'OPEN' for t in trades)}"
+            )
         except Exception as error:
             print(f"{symbol} FAILED: {error}")
 
@@ -314,3 +405,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
