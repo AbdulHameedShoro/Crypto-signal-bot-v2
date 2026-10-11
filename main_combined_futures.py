@@ -899,6 +899,8 @@ def get_signal(symbol):
             sell_trend_path
             or sell_structure_path
             or early_sell_confirmed
+            or bear_pullback_continuation
+         
         )
         and not late_sell
         and not vol_weak
@@ -1183,21 +1185,83 @@ def get_signal(symbol):
         f"SELL_QUALITY={sell_quality}"
     )
     
+    print(
+        f"ENTRY_PATH_DETAIL {symbol} | "
+        f"BUY_TREND={buy_trend_path} "
+        f"BUY_STRUCTURE={buy_structure_path} "
+        f"BUY_EARLY={early_buy_confirmed} "
+        f"BUY_PULLBACK={bull_pullback_continuation} | "
+        f"SELL_TREND={sell_trend_path} "
+        f"SELL_STRUCTURE={sell_structure_path} "
+        f"SELL_EARLY={early_sell_confirmed} "
+        f"SELL_PULLBACK={bear_pullback_continuation} | "
+        f"BUY_ROOM={enough_buy} "
+        f"SELL_ROOM={enough_sell} | "
+        f"WEAK_VOLUME={vol_weak}"
+    )
+    
+
     blocked_reasons = []
 
-    if buy >= MIN_SIGNAL_SCORE and buy > sell and kind == "WAIT":
-        if not enough_buy:
-            blocked_reasons.append("BUY_ROOM")
-        if late_buy:
-            blocked_reasons.append("LATE_ENTRY")
-        if vol_weak:
-            blocked_reasons.append("WEAK_VOLUME")
-        if not (buy_trend_path or buy_structure_path or early_buy_confirmed):
-            blocked_reasons.append("ENTRY_PATH")
-        if trend_4h == "BEARISH":
-            blocked_reasons.append("4H_OPPOSING")
-        if buy_quality < MIN_QUALITY_SCORE:
-            blocked_reasons.append("LOW_QUALITY")
+    if kind == "WAIT":
+        if buy >= MIN_SIGNAL_SCORE and buy > sell:
+            if not enough_buy:
+                blocked_reasons.append("BUY_ROOM")
+            if late_buy:
+                blocked_reasons.append("LATE_BUY")
+            if vol_weak:
+                blocked_reasons.append("WEAK_VOLUME")
+            if not (
+                buy_trend_path
+                or buy_structure_path
+                or early_buy_confirmed
+                or bull_pullback_continuation
+            ):
+                blocked_reasons.append("BUY_ENTRY_PATH")
+            if trend_4h == "BEARISH":
+                blocked_reasons.append("4H_OPPOSING_BUY")
+            if buy_quality < MIN_QUALITY_SCORE:
+                blocked_reasons.append("LOW_BUY_QUALITY")
+            if not (
+                bull_rsi_ok
+                or (htf_buy_support and 48 <= rsi <= 72)
+            ):
+                blocked_reasons.append("BUY_RSI")
+            if (
+                not (bull_candle_ok or bull_pattern_confirmed)
+                and buy_quality < 65
+            ):
+                blocked_reasons.append("BUY_CANDLE_QUALITY")
+
+        elif sell >= MIN_SIGNAL_SCORE and sell > buy:
+            if not enough_sell:
+                blocked_reasons.append("SELL_ROOM")
+            if late_sell:
+                blocked_reasons.append("LATE_SELL")
+            if vol_weak:
+                blocked_reasons.append("WEAK_VOLUME")
+            if not (
+                sell_trend_path
+                or sell_structure_path
+                or early_sell_confirmed
+                or bear_pullback_continuation
+            ):
+                blocked_reasons.append("SELL_ENTRY_PATH")
+            if trend_4h == "BULLISH":
+                blocked_reasons.append("4H_OPPOSING_SELL")
+            if sell_quality < MIN_QUALITY_SCORE:
+                blocked_reasons.append("LOW_SELL_QUALITY")
+            if not (
+                bear_rsi_ok
+                or (htf_sell_support and 28 <= rsi <= 52)
+            ):
+                blocked_reasons.append("SELL_RSI")
+            if (
+                not (bear_candle_ok or bear_pattern_confirmed)
+                and sell_quality < 65
+            ):
+                blocked_reasons.append("SELL_CANDLE_QUALITY")
+                
 
     print(
         f"BLOCKED {symbol} | "
