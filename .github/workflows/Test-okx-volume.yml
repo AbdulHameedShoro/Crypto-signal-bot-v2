@@ -20,6 +20,19 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
+        
+      - name: Check Python file location
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Current branch and commit:"
+          git branch --show-current
+          git rev-parse --short HEAD
+          echo "Repository files:"
+          ls -la
+          echo "Find OKX test file:"
+          find . -iname '*okx*' -type f
+
       - name: Compare Bitget and OKX Volume
         run: python test_okx_volume.py
         
