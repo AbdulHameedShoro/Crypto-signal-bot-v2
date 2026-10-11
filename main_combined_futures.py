@@ -712,23 +712,89 @@ def get_signal(symbol):
         and (adx >= 20 or vol_ratio >= 0.80 or bear_structure)
     )
 
+    
+    # Higher-timeframe alignment is supporting evidence.
+    # Only a clear 4H opposing trend blocks weak early entries.
+    htf_buy_support = (
+        trend_1h == "BULLISH"
+        or trend_4h == "BULLISH"
+    )
+    htf_sell_support = (
+        trend_1h == "BEARISH"
+        or trend_4h == "BEARISH"
+    )
+
+    # Two routes: trend continuation or structure breakout/retest.
+    buy_trend_path = (
+        bull_ema
+        and di_bull
+        and bull_momentum
+        and (adx >= 20 or vol_ratio >= 0.90)
+    )
+
+    sell_trend_path = (
+        bear_ema
+        and di_bear
+        and bear_momentum
+        and (adx >= 20 or vol_ratio >= 0.90)
+    )
+
+    buy_structure_path = (
+        bull_structure_path
+        and bull_momentum
+        and (bull_candle_ok or vol_ratio >= 1.0)
+    )
+
+    sell_structure_path = (
+        bear_structure_path
+        and bear_momentum
+        and (bear_candle_ok or vol_ratio >= 1.0)
+    )
+
     buy_confirm = (
-        (bull_ema or bull_structure_path or bull_early_path)
-        and bull_rsi_ok
-        and enough_buy
+        (buy_trend_path or buy_structure_path)
         and not late_buy
-        and (di_bull or bull_structure)
-        and (adx >= 20 or vol_ratio >= 0.80 or bull_structure)
+        and not vol_weak
+        and enough_buy
+        and (
+            bull_rsi_ok
+            or (
+                htf_buy_support
+                and 48 <= rsi <= 72
+            )
+        )
+        and (
+            trend_4h != "BEARISH"
+            or (
+                bull_structure
+                and adx >= 25
+                and vol_strong
+            )
+        )
     )
 
     sell_confirm = (
-        (bear_ema or bear_structure_path or bear_early_path)
-        and bear_rsi_ok
-        and enough_sell
+        (sell_trend_path or sell_structure_path)
         and not late_sell
-        and (di_bear or bear_structure)
-        and (adx >= 20 or vol_ratio >= 0.80 or bear_structure)
+        and not vol_weak
+        and enough_sell
+        and (
+            bear_rsi_ok
+            or (
+                htf_sell_support
+                and 28 <= rsi <= 52
+            )
+        )
+        and (
+            trend_4h != "BULLISH"
+            or (
+                bear_structure
+                and adx >= 25
+                and vol_strong
+            )
+        )
     )
+    
 
     if buy >= MIN_SIGNAL_SCORE and buy > sell and buy_confirm:
         signal, kind, score = "🟢 BUY", "BUY", buy
@@ -960,6 +1026,19 @@ def get_signal(symbol):
         f"BUY_QUALITY={buy_quality} "
         f"SELL_QUALITY={sell_quality} | "
         f"WEAK_VOL={vol_weak}"
+    )
+    
+    print(
+        f"DECISION {symbol} | "
+        f"FINAL={kind} | "
+        f"BUY_TREND={buy_trend_path} "
+        f"SELL_TREND={sell_trend_path} | "
+        f"BUY_STRUCTURE={buy_structure_path} "
+        f"SELL_STRUCTURE={sell_structure_path} | "
+        f"HTF_BUY={htf_buy_support} "
+        f"HTF_SELL={htf_sell_support} | "
+        f"BUY_QUALITY={buy_quality} "
+        f"SELL_QUALITY={sell_quality}"
     )
     
         
