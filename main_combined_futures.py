@@ -1322,6 +1322,29 @@ def main():
                 if result["nearest_resistance"] is not None else "N/A"
             )
 
+            advice = result["trade_advice"]
+
+            if advice == "ELIGIBLE":
+                advice_banner = (
+                    "🟢━━━━━━━━━━━━━━━━━━━━\n"
+                    "✅ TRADE ELIGIBLE\n"
+                    "ابتدائی شرائط پوری ہیں؛ رسک چیک کریں\n"
+                    "🟢━━━━━━━━━━━━━━━━━━━━\n"
+                )
+            elif advice == "AVOID":
+                advice_banner = (
+                    "🔴━━━━━━━━━━━━━━━━━━━━\n"
+                    "⛔ TRADE AVOID\n"
+                    "یہ ٹریڈ فی الحال نہ لیں\n"
+                    "🔴━━━━━━━━━━━━━━━━━━━━\n"
+                )
+            else:
+                advice_banner = (
+                    "🟡━━━━━━━━━━━━━━━━━━━━\n"
+                    "⏳ NO TRADE — WAIT\n"
+                    "🟡━━━━━━━━━━━━━━━━━━━━\n"
+                )
+                
             messages.append(
                 f"**{symbol}**\n"
                 f"📡 Data: Bitget USDT Perpetual\n"
@@ -1346,7 +1369,11 @@ def main():
                 f"📈 Resistance: {resistance_text}\n"
                 f"{levels}"
                 f"⏱️ Expected: {duration}\n"
-                f"📝 Reason: {result['reason']}"
+                f"📝 Reason: {result['reason']}\n\n"
+                f"{advice_banner}"
+                f"🔎 Advice Reason: "
+                f"{result['trade_advice_reason']}"
+                
             )
 
             print(
