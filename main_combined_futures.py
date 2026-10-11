@@ -818,7 +818,6 @@ def get_signal(symbol):
         and (adx >= 20 or vol_ratio >= 0.90)
     )
     
-    )
 
     buy_structure_path = (
         bull_structure_path
