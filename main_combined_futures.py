@@ -1074,7 +1074,90 @@ def get_signal(symbol):
         f"SELL_QUALITY={sell_quality}"
     )
     
-        
+     
+    # Independent trade eligibility assessment.
+    # Does not change the original BUY/SELL/WAIT signal.
+
+    trade_advice = "NO TRADE"
+    trade_advice_reason = "No confirmed BUY/SELL signal"
+
+    if kind in ("BUY", "SELL"):
+
+        is_buy = kind == "BUY"
+
+        direction_quality = (
+            buy_quality if is_buy else sell_quality
+        )
+
+        direction_room = (
+            buy_room_rr if is_buy else sell_room_rr
+        )
+
+        direction_candle = (
+            bull_candle_ok if is_buy else bear_candle_ok
+        )
+
+        direction_structure = (
+            bull_structure if is_buy else bear_structure
+        )
+
+        direction_di = (
+            di_bull if is_buy else di_bear
+        )
+
+        direction_htf = (
+            "BULLISH" if is_buy else "BEARISH"
+        )
+
+        opposite_htf = (
+            "BEARISH" if is_buy else "BULLISH"
+        )
+
+        # Do not approve trades against a clear 4H trend.
+        htf_safe = (
+            trend_4h != opposite_htf
+            and trend_4h != "UNKNOWN"
+        )
+
+        # Prefer 1H alignment, but allow strong structure.
+        htf_confirmed = (
+            trend_1h == direction_htf
+            or (
+                direction_structure
+                and adx >= 25
+                and vol_ratio >= 1.0
+            )
+        )
+
+        checks = {
+            "Higher timeframe": htf_safe and htf_confirmed,
+            "Signal strength": score >= 70,
+            "Setup quality": direction_quality >= 65,
+            "Trend momentum": adx >= 20 and direction_di,
+            "Volume": vol_ratio >= 0.80,
+            "Candle confirmation": direction_candle,
+            "Target room": direction_room >= 1.5,
+            "Entry distance": not (
+                late_buy if is_buy else late_sell
+            ),
+        }
+
+        failed_checks = [
+            name for name, passed in checks.items()
+            if not passed
+        ]
+
+        if not failed_checks:
+            trade_advice = "ELIGIBLE"
+            trade_advice_reason = (
+                "All preliminary trade checks passed"
+            )
+        else:
+            trade_advice = "AVOID"
+            trade_advice_reason = (
+                "Missing: " + ", ".join(failed_checks)
+        )
+            
     return {
         "price": price,
         "ema20": ema20,
@@ -1088,6 +1171,8 @@ def get_signal(symbol):
         "atr": atr,
         "trend": trend,
         "signal": signal,
+        "trade_advice": trade_advice,
+        "trade_advice_reason": trade_advice_reason,
         "signal_type": kind,
         "signal_score": score,
         "buy_score": buy,
