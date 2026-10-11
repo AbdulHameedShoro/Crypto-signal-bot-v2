@@ -1223,49 +1223,108 @@ def get_signal(symbol):
     }
 
 
+
 def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
-    if atr <= 0:
+    """
+    Calculate structure-aware SL, TP1 and TP2.
+
+    ns = nearest relevant support / sell obstacle
+    nr = nearest relevant resistance / buy obstacle
+
+    Returns (None, None, None) when the setup is unsuitable.
+    """
+
+    if atr <= 0 or price <= 0:
         return None, None, None
 
+    if signal not in ("🟢 BUY", "🔴 SELL"):
+        return None, None, None
+
+    buffer = atr * STRUCTURE_BUFFER_ATR
+    atr_stop = atr * STOP_ATR_MULTIPLIER
+
+    # Do not allow an excessively wide structural stop.
+    max_risk = atr * 2.5
+
     if signal == "🟢 BUY":
-        sl = price - atr * STOP_ATR_MULTIPLIER
+
+        # Use a confirmed support below entry, if available.
+        supports = [
+            level for level in (support, ns)
+            if level is not None and 0 < level < price
+        ]
+
+        if supports:
+            structural_sl = max(supports) - buffer
+            sl = min(price - atr_stop, structural_sl)
+        else:
+            sl = price - atr_stop
+
         risk = price - sl
-        raw1 = price + risk * TP1_RR
-        raw2 = price + risk * TP2_RR
-        obstacle = nr if nr is not None else (resistance if resistance > price else None)
+
+        if risk <= 0 or risk > max_risk or sl <= 0:
+            return None, None, None
+
+        # Use the same forward barrier as the signal filter.
+        obstacle = nr if nr is not None and nr > price else None
+
         if obstacle is not None:
-            level = obstacle - atr * STRUCTURE_BUFFER_ATR
-            room_rr = (level - price) / risk if level > price else 0.0
-            # A structural signal may have as little as 1R of room; all other
-            # signals require 1.2R. Keep TP1 before the next visible barrier.
-            minimum_room = 1.00 if obstacle is not None else 1.20
-            
-            if room_rr >= minimum_room:
-                raw1 = min(raw1, level)
-            else:
+            available_room = obstacle - buffer - price
+
+            if available_room < risk * 1.5:
                 return None, None, None
-                
-        return sl, raw1, raw2
+
+        tp1 = price + risk * TP1_RR
+        tp2 = price + risk * TP2_RR
+
+        if obstacle is not None:
+            tp1 = min(tp1, obstacle - buffer)
+
+        if tp1 <= price or tp2 <= tp1:
+            return None, None, None
+
+        return sl, tp1, tp2
 
     if signal == "🔴 SELL":
-        sl = price + atr * STOP_ATR_MULTIPLIER
+
+        # Use a confirmed resistance above entry, if available.
+        resistances = [
+            level for level in (resistance, nr)
+            if level is not None and level > price
+        ]
+
+        if resistances:
+            structural_sl = min(resistances) + buffer
+            sl = max(price + atr_stop, structural_sl)
+        else:
+            sl = price + atr_stop
+
         risk = sl - price
-        raw1 = price - risk * TP1_RR
-        raw2 = price - risk * TP2_RR
-        obstacle = ns if ns is not None else (support if support < price else None)
+
+        if risk <= 0 or risk > max_risk:
+            return None, None, None
+
+        obstacle = ns if ns is not None and ns < price else None
+
         if obstacle is not None:
-            level = obstacle + atr * STRUCTURE_BUFFER_ATR
-            room_rr = (price - level) / risk if level < price else 0.0
-            minimum_room = 1.00 if obstacle is not None else 1.20
-            
-            if room_rr >= minimum_room:
-                raw1 = min(raw1, level)
-            else:
+            available_room = price - (obstacle + buffer)
+
+            if available_room < risk * 1.5:
                 return None, None, None
-                
-        return sl, raw1, raw2
+
+        tp1 = price - risk * TP1_RR
+        tp2 = price - risk * TP2_RR
+
+        if obstacle is not None:
+            tp1 = max(tp1, obstacle + buffer)
+
+        if tp1 >= price or tp2 >= tp1 or tp2 <= 0:
+            return None, None, None
+
+        return sl, tp1, tp2
 
     return None, None, None
+    
 
 
 def estimate_duration(price, tp2, atr):
@@ -1340,6 +1399,13 @@ def main():
             
             
             duration = estimate_duration(price, tp2, atr)
+            
+            if signal in ("🟢 BUY", "🔴 SELL") and sl is None:
+                result["trade_advice"] = "AVOID"
+                result["trade_advice_reason"] = (
+                    "Structural SL/TP validation failed"
+                )
+                
 
             if sl is not None:
                 levels = (
