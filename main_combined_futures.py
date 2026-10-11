@@ -1239,8 +1239,12 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
             # A structural signal may have as little as 1R of room; all other
             # signals require 1.2R. Keep TP1 before the next visible barrier.
             minimum_room = 1.00 if obstacle is not None else 1.20
+            
             if room_rr >= minimum_room:
                 raw1 = min(raw1, level)
+            else:
+                return None, None, None
+                
         return sl, raw1, raw2
 
     if signal == "🔴 SELL":
@@ -1253,8 +1257,12 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
             level = obstacle + atr * STRUCTURE_BUFFER_ATR
             room_rr = (price - level) / risk if level < price else 0.0
             minimum_room = 1.00 if obstacle is not None else 1.20
+            
             if room_rr >= minimum_room:
-                raw1 = max(raw1, level)
+                raw1 = min(raw1, level)
+            else:
+                return None, None, None
+                
         return sl, raw1, raw2
 
     return None, None, None
@@ -1323,10 +1331,13 @@ def main():
             atr = result["atr"]
             signal = result["signal"]
 
+            
             sl, tp1, tp2 = calculate_trade_levels(
                 price, atr, signal,
                 result["support"], result["resistance"],
-                result["nearest_support"], result["nearest_resistance"],
+                result["sell_obstacle"], result["buy_obstacle"],
+            )
+            
             )
             duration = estimate_duration(price, tp2, atr)
 
