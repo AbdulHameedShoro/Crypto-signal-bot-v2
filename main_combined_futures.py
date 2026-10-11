@@ -1074,6 +1074,24 @@ def get_signal(symbol):
         f"SELL_QUALITY={sell_quality}"
     )
     
+    print(
+        f"FILTER_DETAIL {symbol} | "
+        f"PRICE={price:.8g} | "
+        f"EMA20_UP={ema20_up} "
+        f"EMA20_DOWN={ema20_down} | "
+        f"DI_BULL={di_bull} "
+        f"DI_BEAR={di_bear} | "
+        f"BULL_MOMENTUM={bull_momentum} "
+        f"BEAR_MOMENTUM={bear_momentum} | "
+        f"LATE_BUY={late_buy} "
+        f"LATE_SELL={late_sell} | "
+        f"BULL_STRUCTURE_PATH={bull_structure_path} "
+        f"BEAR_STRUCTURE_PATH={bear_structure_path} | "
+        f"1H={trend_1h} "
+        f"4H={trend_4h} | "
+        f"VOL_RATIO={vol_ratio:.2f}"
+    )
+    
      
     # Independent trade eligibility assessment.
     # Does not change the original BUY/SELL/WAIT signal.
