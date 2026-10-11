@@ -837,11 +837,45 @@ def get_signal(symbol):
         and enough_sell
     )
 
+    # Confirmed pullback continuation in an established trend.
+    # Requires a fresh closed-candle recovery, not just a bullish trend.
+    bull_pullback_continuation = (
+        bull_ema
+        and trend_1h == "BULLISH"
+        and trend_4h != "BEARISH"
+        and adx >= 25
+        and di_bull
+        and bull_rsi_ok
+        and not late_buy
+        and vol_ratio >= 0.80
+        and enough_buy
+        and bull_candle_ok
+        and closes[-2] <= opens[-2]
+        and closes[-1] > highs[-2]
+    )
+
+    bear_pullback_continuation = (
+        bear_ema
+        and trend_1h == "BEARISH"
+        and trend_4h != "BULLISH"
+        and adx >= 25
+        and di_bear
+        and bear_rsi_ok
+        and not late_sell
+        and vol_ratio >= 0.80
+        and enough_sell
+        and bear_candle_ok
+        and closes[-2] >= opens[-2]
+        and closes[-1] < lows[-2]
+    )
+    
     buy_confirm = (
         (
             buy_trend_path
             or buy_structure_path
             or early_buy_confirmed
+            or bull_pullback_continuation
+            
         )
         and not late_buy
         and not vol_weak
