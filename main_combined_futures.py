@@ -567,6 +567,34 @@ def get_signal(symbol):
     late_buy = price > ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
     late_sell = price < ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
 
+    # Detect strong momentum approaching support/resistance.
+    # Watch only: this does not authorize an immediate trade.
+    breakout_proximity = 0.35
+
+    buy_breakout_watch = (
+        atr > 0
+        and 0 <= resistance - price <= atr * breakout_proximity
+        and vol_ratio >= 1.50
+        and price > ema20
+        and ema20_up
+        and di_bull
+        and 50 <= rsi <= 75
+        and bull_momentum
+        and not late_buy
+    )
+
+    sell_breakdown_watch = (
+        atr > 0
+        and 0 <= price - support <= atr * breakout_proximity
+        and vol_ratio >= 1.50
+        and price < ema20
+        and ema20_down
+        and di_bear
+        and 25 <= rsi <= 50
+        and bear_momentum
+        and not late_sell
+    )
+    
     # Slightly wider RSI band than a very strict filter, with guarded continuation.
     bull_rsi = 51 <= rsi <= 69
     bear_rsi = 31 <= rsi <= 49
@@ -785,17 +813,42 @@ def get_signal(symbol):
         and (bear_candle_ok or vol_ratio >= 1.0)
     )
 
+    
+    # Early entry requires stronger supporting evidence.
+    early_buy_confirmed = (
+        bull_early_path
+        and bull_momentum
+        and di_bull
+        and vol_ratio >= 1.50
+        and adx >= 18
+        and bull_candle_ok
+        and 50 <= rsi <= 70
+        and enough_buy
+    )
+
+    early_sell_confirmed = (
+        bear_early_path
+        and bear_momentum
+        and di_bear
+        and vol_ratio >= 1.50
+        and adx >= 18
+        and bear_candle_ok
+        and 30 <= rsi <= 50
+        and enough_sell
+    )
+
     buy_confirm = (
-        (buy_trend_path or buy_structure_path)
+        (
+            buy_trend_path
+            or buy_structure_path
+            or early_buy_confirmed
+        )
         and not late_buy
         and not vol_weak
         and enough_buy
         and (
             bull_rsi_ok
-            or (
-                htf_buy_support
-                and 48 <= rsi <= 72
-            )
+            or (htf_buy_support and 48 <= rsi <= 72)
         )
         and (
             trend_4h != "BEARISH"
@@ -808,16 +861,17 @@ def get_signal(symbol):
     )
 
     sell_confirm = (
-        (sell_trend_path or sell_structure_path)
+        (
+            sell_trend_path
+            or sell_structure_path
+            or early_sell_confirmed
+        )
         and not late_sell
         and not vol_weak
         and enough_sell
         and (
             bear_rsi_ok
-            or (
-                htf_sell_support
-                and 28 <= rsi <= 52
-            )
+            or (htf_sell_support and 28 <= rsi <= 52)
         )
         and (
             trend_4h != "BULLISH"
@@ -828,6 +882,7 @@ def get_signal(symbol):
             )
         )
     )
+    
     
 
     if buy >= MIN_SIGNAL_SCORE and buy > sell and buy_confirm:
@@ -909,6 +964,14 @@ def get_signal(symbol):
         )
 
     
+    breakout_watch_status = "NONE"
+
+    if kind == "WAIT":
+        if buy_breakout_watch:
+            breakout_watch_status = "BUY BREAKOUT WATCH"
+        elif sell_breakdown_watch:
+            breakout_watch_status = "SELL BREAKDOWN WATCH"
+            
     if kind == "BUY":
         entry_quality_score = buy_quality
     elif kind == "SELL":
@@ -1086,6 +1149,29 @@ def get_signal(symbol):
         f"SELL_QUALITY={sell_quality}"
     )
     
+    blocked_reasons = []
+
+    if buy >= MIN_SIGNAL_SCORE and buy > sell and kind == "WAIT":
+        if not enough_buy:
+            blocked_reasons.append("BUY_ROOM")
+        if late_buy:
+            blocked_reasons.append("LATE_ENTRY")
+        if vol_weak:
+            blocked_reasons.append("WEAK_VOLUME")
+        if not (buy_trend_path or buy_structure_path or early_buy_confirmed):
+            blocked_reasons.append("ENTRY_PATH")
+        if trend_4h == "BEARISH":
+            blocked_reasons.append("4H_OPPOSING")
+        if buy_quality < MIN_QUALITY_SCORE:
+            blocked_reasons.append("LOW_QUALITY")
+
+    print(
+        f"BLOCKED {symbol} | "
+        f"REASONS={','.join(blocked_reasons) if blocked_reasons else 'NONE'} | "
+        f"BUY_WATCH={buy_breakout_watch} | "
+        f"SELL_WATCH={sell_breakdown_watch}"
+    )
+    
     print(
         f"FILTER_DETAIL {symbol} | "
         f"PRICE={price:.8g} | "
@@ -1220,6 +1306,8 @@ def get_signal(symbol):
         "nearest_support": ns,
         "nearest_resistance": nr,
         "reason": " + ".join(reasons),
+        "breakout_watch": breakout_watch_status,
+        
     }
 
 
@@ -1466,6 +1554,7 @@ def main():
                 f"↗️ +DI: {result['plus_di']:.2f} | ↘️ -DI: {result['minus_di']:.2f}\n"
                 f"📦 Volume: {result['volume_ratio']:.2f}x\n"
                 f"🎯 Signal: {signal}\n"
+                f"🔔 Breakout Watch: {result['breakout_watch']}\n"
                 f"💯 Signal Score: {result['signal_score']}/100\n"
                 f"⭐ Setup Quality: {result['entry_quality']} "
                 f"({result['entry_quality_score']}/100; not win probability)\n"
