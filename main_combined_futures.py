@@ -687,7 +687,13 @@ def get_signal(symbol):
     buy += 4 if ema50_up else 0
     buy += 14 if bull_rsi_ok else 0
     buy += 8 if bull_momentum else 0
-    buy += 14 if adx >= 25 else (7 if adx >= 20 else 0)
+    
+    buy += (
+        14 if adx >= 25 and di_bull
+        else 7 if adx >= 20 and di_bull
+        else 0
+    )
+    
     buy += 8 if vol_strong else 0
     buy += 6 if bull_structure else 0
     buy += 6 if enough_buy else 0
@@ -705,7 +711,13 @@ def get_signal(symbol):
     sell += 4 if ema50_down else 0
     sell += 14 if bear_rsi_ok else 0
     sell += 8 if bear_momentum else 0
-    sell += 14 if adx >= 25 else (7 if adx >= 20 else 0)
+    
+    sell += (
+        14 if adx >= 25 and di_bear
+        else 7 if adx >= 20 and di_bear
+        else 0
+    )
+    
     sell += 8 if vol_strong else 0
     sell += 6 if bear_structure else 0
     sell += 6 if enough_sell else 0
