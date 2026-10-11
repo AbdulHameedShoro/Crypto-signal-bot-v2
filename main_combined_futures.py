@@ -803,18 +803,21 @@ def get_signal(symbol):
     )
 
     # Two routes: trend continuation or structure breakout/retest.
+    
     buy_trend_path = (
         bull_ema
         and di_bull
-        and bull_momentum
+        and (bull_momentum or bull_candle_ok)
         and (adx >= 20 or vol_ratio >= 0.90)
     )
 
     sell_trend_path = (
         bear_ema
         and di_bear
-        and bear_momentum
+        and (bear_momentum or bear_candle_ok)
         and (adx >= 20 or vol_ratio >= 0.90)
+    )
+    
     )
 
     buy_structure_path = (
