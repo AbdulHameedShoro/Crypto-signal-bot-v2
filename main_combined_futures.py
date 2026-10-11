@@ -8,6 +8,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COINS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
     "XRPUSDT", "DOGEUSDT", "ZENUSDT", "ZECUSDT",
+    "CKBUSDT",
 ]
 
 # Public USDT perpetual market data from Bybit.
