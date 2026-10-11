@@ -34,5 +34,5 @@ jobs:
           find . -iname '*okx*' -type f
 
       - name: Compare Bitget and OKX Volume
-        run: python test_okx_volume.py
+        run: python Test_okx_volume.py
         
