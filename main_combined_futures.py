@@ -534,6 +534,21 @@ def get_signal(symbol):
     vol_strong = vol_ratio >= STRONG_VOLUME_RATIO
     vol_weak = vol_ratio < WEAK_VOLUME_RATIO
 
+    candle_age_minutes = (
+        now_ms - (
+            int(closed[-1][0]) + candle_duration_ms
+        )
+    ) / 60000
+
+    print(
+        f"VOLUME_CHECK {symbol} | "
+        f"LAST_VOLUME={volumes[-1]:.4f} | "
+        f"AVG_20_VOLUME={avg_vol:.4f} | "
+        f"RATIO={vol_ratio:.3f} | "
+        f"CANDLE_AGE_MIN={candle_age_minutes:.1f} | "
+        f"CLOSED_CANDLES={len(closed)}"
+    )
+    
     support, resistance = get_support_resistance(
         highs, lows, STRUCTURE_LOOKBACK
     )
