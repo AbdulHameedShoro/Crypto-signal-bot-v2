@@ -585,8 +585,30 @@ def get_signal(symbol):
 
     # Judge the next barrier in front of the proposed entry, not a level
     # that is already behind price. Keep at least 1.2R room to that barrier.
-    buy_obstacle = nr if nr is not None else (resistance if resistance > price else None)
-    sell_obstacle = ns if ns is not None else (support if support < price else None)
+    
+    # Use established 20-candle structure for trade clearance.
+    # Small local swings remain available for diagnostics,
+    # but do not automatically veto every trade.
+    buy_obstacle = (
+        resistance if resistance > price else None
+    )
+    sell_obstacle = (
+        support if support < price else None
+    )
+
+    # Previous-day levels are additional possible barriers.
+    if previous_day_high is not None:
+        if previous_day_high > price:
+            buy_obstacle = min(
+                buy_obstacle, previous_day_high
+            ) if buy_obstacle is not None else previous_day_high
+
+    if previous_day_low is not None:
+        if previous_day_low < price:
+            sell_obstacle = max(
+                sell_obstacle, previous_day_low
+            ) if sell_obstacle is not None else previous_day_low
+            
     one_r_price = atr * STOP_ATR_MULTIPLIER
 
     if buy_obstacle is None:
@@ -806,8 +828,19 @@ def get_signal(symbol):
     # Entry quality score: supplementary setup rating, not a win probability.
     buy_quality = 0
     sell_quality = 0
-    buy_quality += 30 if bull_ema else (20 if bull_structure_path else 0)
-    sell_quality += 30 if bear_ema else (20 if bear_structure_path else 0)
+    
+    buy_quality += (
+        30 if bull_ema
+        else 20 if (bull_structure_path or bull_early_path)
+        else 0
+    )
+
+    sell_quality += (
+        30 if bear_ema
+        else 20 if (bear_structure_path or bear_early_path)
+        else 0
+    )
+    
     buy_quality += 15 if adx >= 20 and di_bull else 0
     sell_quality += 15 if adx >= 20 and di_bear else 0
     buy_quality += 15 if bull_rsi_ok else 0
@@ -1067,6 +1100,8 @@ def get_signal(symbol):
         "entry_timing": entry_timing,
         "support": support,
         "resistance": resistance,
+        "buy_obstacle": buy_obstacle,
+        "sell_obstacle": sell_obstacle,
         "nearest_support": ns,
         "nearest_resistance": nr,
         "reason": " + ".join(reasons),
