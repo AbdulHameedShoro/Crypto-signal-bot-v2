@@ -1338,7 +1338,7 @@ def main():
                 result["sell_obstacle"], result["buy_obstacle"],
             )
             
-            )
+            
             duration = estimate_duration(price, tp2, atr)
 
             if sl is not None:
