@@ -580,8 +580,48 @@ def get_signal(symbol):
     bear_structure = bear_break or bear_retest
 
     dist_ema = abs(price - ema20) / atr if atr > 0 else 0.0
-    late_buy = price > ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
-    late_sell = price < ema20 and dist_ema > MAX_ENTRY_DISTANCE_ATR
+    
+    # Standard distance limit remains 1.8 ATR.
+    # Allow up to 2.2 ATR only for strong, confirmed breakouts.
+    strong_buy_breakout = (
+        bull_structure
+        and price > ema20
+        and ema20_up
+        and di_bull
+        and adx >= 20
+        and vol_ratio >= 1.50
+        and trend_1h == "BULLISH"
+        and closes[-1] > opens[-1]
+    )
+
+    strong_sell_breakout = (
+        bear_structure
+        and price < ema20
+        and ema20_down
+        and di_bear
+        and adx >= 20
+        and vol_ratio >= 1.50
+        and trend_1h == "BEARISH"
+        and closes[-1] < opens[-1]
+    )
+
+    buy_distance_limit = (
+        2.2 if strong_buy_breakout
+        else MAX_ENTRY_DISTANCE_ATR
+    )
+
+    sell_distance_limit = (
+        2.2 if strong_sell_breakout
+        else MAX_ENTRY_DISTANCE_ATR
+    )
+
+    late_buy = (
+        price > ema20 and dist_ema > buy_distance_limit
+    )
+    late_sell = (
+        price < ema20 and dist_ema > sell_distance_limit
+    )
+    
 
     # Detect strong momentum approaching support/resistance.
     # Watch only: this does not authorize an immediate trade.
