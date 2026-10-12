@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# NOTE: this file is pure ASCII; emojis/Urdu are written as escapes so
+# copy-paste or editor encoding can never corrupt them.
 import os
 import math
 import time
@@ -19,9 +21,9 @@ CANDLE_LIMIT = 200
 TIMEOUT = 12
 
 # Signal labels (single source of truth, avoids emoji mismatches).
-SIG_BUY = "ðŸŸ¢ BUY"
-SIG_SELL = "ðŸ”´ SELL"
-SIG_WAIT = "ðŸŸ¡ WAIT"
+SIG_BUY = "\U0001f7e2 BUY"
+SIG_SELL = "\U0001f534 SELL"
+SIG_WAIT = "\U0001f7e1 WAIT"
 
 # Balanced settings: not as strict as the original filter, but still confirmed.
 MIN_SIGNAL_SCORE = 55
@@ -1503,11 +1505,11 @@ def estimate_duration(price, tp2, atr):
     # A rough ATR-based estimate, not a guaranteed target time.
     minutes = max(15, abs(tp2 - price) / atr * 15 * 1.5)
     if minutes < 60:
-        return f"ØªÙ‚Ø±ÛŒØ¨Ø§Ù‹ {math.ceil(minutes)} Ù…Ù†Ù¹"
+        return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {math.ceil(minutes)} \u0645\u0646\u0679"
     hours = minutes / 60
     if hours < 24:
-        return f"ØªÙ‚Ø±ÛŒØ¨Ø§Ù‹ {hours:.1f} Ú¯Ú¾Ù†Ù¹Û’"
-    return f"ØªÙ‚Ø±ÛŒØ¨Ø§Ù‹ {hours / 24:.1f} Ø¯Ù†"
+        return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {hours:.1f} \u06af\u06be\u0646\u0679\u06d2"
+    return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {hours / 24:.1f} \u062f\u0646"
 
 
 def send_discord(message):
@@ -1582,15 +1584,15 @@ def main():
 
             if sl is not None:
                 levels = (
-                    f"ðŸ›‘ Stop Loss: {sl:.8g}\n"
-                    f"ðŸŽ¯ TP1: {tp1:.8g}\n"
-                    f"ðŸŽ¯ TP2: {tp2:.8g}\n"
+                    f"\U0001f6d1 Stop Loss: {sl:.8g}\n"
+                    f"\U0001f3af TP1: {tp1:.8g}\n"
+                    f"\U0001f3af TP2: {tp2:.8g}\n"
                 )
             else:
                 levels = (
-                    "ðŸ›‘ Stop Loss: N/A\n"
-                    "ðŸŽ¯ TP1: N/A\n"
-                    "ðŸŽ¯ TP2: N/A\n"
+                    "\U0001f6d1 Stop Loss: N/A\n"
+                    "\U0001f3af TP1: N/A\n"
+                    "\U0001f3af TP2: N/A\n"
                 )
 
             support_text = (
@@ -1606,54 +1608,54 @@ def main():
 
             if advice == "ELIGIBLE":
                 advice_banner = (
-                    "ðŸŸ¢â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
-                    "âœ… TRADE ELIGIBLE\n"
-                    "Ø§Ø¨ØªØ¯Ø§Ø¦ÛŒ Ø´Ø±Ø§Ø¦Ø· Ù¾ÙˆØ±ÛŒ ÛÛŒÚºØ› Ø±Ø³Ú© Ú†ÛŒÚ© Ú©Ø±ÛŒÚº\n"
-                    "ðŸŸ¢â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+                    "\U0001f7e2\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                    "\u2705 TRADE ELIGIBLE\n"
+                    "\u0627\u0628\u062a\u062f\u0627\u0626\u06cc \u0634\u0631\u0627\u0626\u0637 \u067e\u0648\u0631\u06cc \u06c1\u06cc\u06ba\u061b \u0631\u0633\u06a9 \u0686\u06cc\u06a9 \u06a9\u0631\u06cc\u06ba\n"
+                    "\U0001f7e2\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
                 )
             elif advice == "AVOID":
                 advice_banner = (
-                    "ðŸ”´â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
-                    "â›” TRADE AVOID\n"
-                    "ÛŒÛ Ù¹Ø±ÛŒÚˆ ÙÛŒ Ø§Ù„Ø­Ø§Ù„ Ù†Û Ù„ÛŒÚº\n"
-                    "ðŸ”´â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+                    "\U0001f534\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                    "\u26d4 TRADE AVOID\n"
+                    "\u06cc\u06c1 \u0679\u0631\u06cc\u0688 \u0641\u06cc \u0627\u0644\u062d\u0627\u0644 \u0646\u06c1 \u0644\u06cc\u06ba\n"
+                    "\U0001f534\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
                 )
             else:
                 advice_banner = (
-                    "ðŸŸ¡â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
-                    "â³ NO TRADE â€” WAIT\n"
-                    "ðŸŸ¡â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+                    "\U0001f7e1\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                    "\u23f3 NO TRADE \u2014 WAIT\n"
+                    "\U0001f7e1\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
                 )
 
             messages.append(
                 f"**{symbol}**\n"
-                f"ðŸ“¡ Data: Bitget USDT Perpetual\n"
-                f"ðŸ’° Entry: {price:.8g}\n"
-                f"ðŸ“ˆ Trend: {result['trend']}\n"
-                f"ðŸ• 1H Trend: {result['trend_1h']}\n"
-                f"ðŸ•“ 4H Trend: {result['trend_4h']}\n"
-                f"ðŸ“Š RSI: {result['rsi']:.2f}\n"
-                f"ã€½ï¸ EMA20: {result['ema20']:.8g}\n"
-                f"ã€½ï¸ EMA50: {result['ema50']:.8g}\n"
-                f"ðŸ’ª ADX: {result['adx']:.2f}\n"
-                f"â†—ï¸ +DI: {result['plus_di']:.2f} | â†˜ï¸ -DI: {result['minus_di']:.2f}\n"
-                f"ðŸ“¦ Volume: {result['volume_ratio']:.2f}x\n"
-                f"ðŸŽ¯ Signal: {signal}\n"
-                f"ðŸ§ª Paper Signal: {result['paper_signal']}\n"
-                f"ðŸ”” Breakout Watch: {result['breakout_watch']}\n"
-                f"ðŸ’¯ Signal Score: {result['signal_score']}/100\n"
-                f"â­ Setup Quality: {result['entry_quality']} "
+                f"\U0001f4e1 Data: Bitget USDT Perpetual\n"
+                f"\U0001f4b0 Entry: {price:.8g}\n"
+                f"\U0001f4c8 Trend: {result['trend']}\n"
+                f"\U0001f550 1H Trend: {result['trend_1h']}\n"
+                f"\U0001f553 4H Trend: {result['trend_4h']}\n"
+                f"\U0001f4ca RSI: {result['rsi']:.2f}\n"
+                f"\u303d\ufe0f EMA20: {result['ema20']:.8g}\n"
+                f"\u303d\ufe0f EMA50: {result['ema50']:.8g}\n"
+                f"\U0001f4aa ADX: {result['adx']:.2f}\n"
+                f"\u2197\ufe0f +DI: {result['plus_di']:.2f} | \u2198\ufe0f -DI: {result['minus_di']:.2f}\n"
+                f"\U0001f4e6 Volume: {result['volume_ratio']:.2f}x\n"
+                f"\U0001f3af Signal: {signal}\n"
+                f"\U0001f9ea Paper Signal: {result['paper_signal']}\n"
+                f"\U0001f514 Breakout Watch: {result['breakout_watch']}\n"
+                f"\U0001f4af Signal Score: {result['signal_score']}/100\n"
+                f"\u2b50 Setup Quality: {result['entry_quality']} "
                 f"({result['entry_quality_score']}/100; not win probability)\n"
-                f"ðŸ“Œ Setup: {result['entry_setup']}\n"
-                f"ðŸ•¯ï¸ Candle: {result['candle_status']}\n"
-                f"ðŸŽ¯ Entry Timing: {result['entry_timing']}\n"
-                f"ðŸ“‰ Support: {support_text}\n"
-                f"ðŸ“ˆ Resistance: {resistance_text}\n"
+                f"\U0001f4cc Setup: {result['entry_setup']}\n"
+                f"\U0001f56f\ufe0f Candle: {result['candle_status']}\n"
+                f"\U0001f3af Entry Timing: {result['entry_timing']}\n"
+                f"\U0001f4c9 Support: {support_text}\n"
+                f"\U0001f4c8 Resistance: {resistance_text}\n"
                 f"{levels}"
-                f"â±ï¸ Expected: {duration}\n"
-                f"ðŸ“ Reason: {result['reason']}\n\n"
+                f"\u23f1\ufe0f Expected: {duration}\n"
+                f"\U0001f4dd Reason: {result['reason']}\n\n"
                 f"{advice_banner}"
-                f"ðŸ”Ž Advice Reason: "
+                f"\U0001f50e Advice Reason: "
                 f"{result['trade_advice_reason']}"
             )
 
