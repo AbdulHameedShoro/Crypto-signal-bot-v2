@@ -18,7 +18,7 @@ CANDLE_LIMIT = 200
 TIMEOUT = 12
 
 # Balanced settings: not as strict as the original filter, but still confirmed.
-MIN_SIGNAL_SCORE = 60
+MIN_SIGNAL_SCORE = 65
 STOP_ATR_MULTIPLIER = 1.5
 TP1_RR = 1.5
 TP2_RR = 2.5
