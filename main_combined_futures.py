@@ -1269,7 +1269,12 @@ def get_signal(symbol):
         f"BEAR_STRUCTURE_PATH={bear_structure_path} | "
         f"1H={trend_1h} "
         f"4H={trend_4h} | "
-        f"VOL_RATIO={vol_ratio:.2f}"
+        f"VOL_RATIO={vol_ratio:.2f} | "
+        f"DIST_EMA_ATR={dist_ema:.2f} | "
+        f"BUY_DISTANCE_LIMIT={buy_distance_limit:.2f} | "
+        f"SELL_DISTANCE_LIMIT={sell_distance_limit:.2f} | "
+        f"ATR={atr:.8g}"
+        
     )
 
     # Independent trade eligibility assessment.
