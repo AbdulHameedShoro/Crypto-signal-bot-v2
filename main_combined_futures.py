@@ -1283,7 +1283,7 @@ def get_signal(symbol):
 
         direction_quality = buy_quality if is_buy else sell_quality
         direction_room = buy_room_rr if is_buy else sell_room_rr
-                direction_candle = bull_candle_ok if is_buy else bear_candle_ok
+        direction_candle = bull_candle_ok if is_buy else bear_candle_ok
 
         strong_breakdown_confirmation = (
             not is_buy
