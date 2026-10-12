@@ -18,7 +18,9 @@ CANDLE_LIMIT = 200
 TIMEOUT = 12
 
 # Balanced settings: not as strict as the original filter, but still confirmed.
-MIN_SIGNAL_SCORE = 65
+
+MIN_SIGNAL_SCORE = 55
+PAPER_SIGNAL_SCORE = 55
 STOP_ATR_MULTIPLIER = 1.5
 TP1_RR = 1.5
 TP2_RR = 2.5
@@ -986,6 +988,33 @@ def get_signal(symbol):
     else:
         signal, kind, score = "🟡 WAIT", "WAIT", min(max(buy, sell), 84)
 
+    # Experimental paper signal, separate from live confirmation.
+    paper_signal = "NONE"
+
+    if (
+        buy >= PAPER_SIGNAL_SCORE
+        and buy > sell
+        and price > ema20
+        and di_bull
+        and not vol_weak
+        and not late_buy
+        and enough_buy
+        and bull_momentum
+    ):
+        paper_signal = "PAPER BUY"
+
+    elif (
+        sell >= PAPER_SIGNAL_SCORE
+        and sell > buy
+        and price < ema20
+        and di_bear
+        and not vol_weak
+        and not late_sell
+        and enough_sell
+        and bear_momentum
+    ):
+        paper_signal = "PAPER SELL"
+        
     # Entry quality score: supplementary setup rating, not a win probability.
     buy_quality = 0
     sell_quality = 0
@@ -1443,6 +1472,7 @@ def get_signal(symbol):
         "atr": atr,
         "trend": trend,
         "signal": signal,
+        "paper_signal": paper_signal,
         "trade_advice": trade_advice,
         "trade_advice_reason": trade_advice_reason,
         "signal_type": kind,
@@ -1746,6 +1776,7 @@ def main():
                 f"↗️ +DI: {result['plus_di']:.2f} | ↘️ -DI: {result['minus_di']:.2f}\n"
                 f"📦 Volume: {result['volume_ratio']:.2f}x\n"
                 f"🎯 Signal: {signal}\n"
+                f"🧪 Paper Signal: {result['paper_signal']}\n"
                 f"🔔 Breakout Watch: {result['breakout_watch']}\n"
                 f"💯 Signal Score: {result['signal_score']}/100\n"
                 f"⭐ Setup Quality: {result['entry_quality']} "
