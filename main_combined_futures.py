@@ -1283,7 +1283,39 @@ def get_signal(symbol):
 
         direction_quality = buy_quality if is_buy else sell_quality
         direction_room = buy_room_rr if is_buy else sell_room_rr
-        direction_candle = bull_candle_ok if is_buy else bear_candle_ok
+                direction_candle = bull_candle_ok if is_buy else bear_candle_ok
+
+        strong_breakdown_confirmation = (
+            not is_buy
+            and bear_break
+            and closes[-1] < opens[-1]
+            and trend_1h == "BEARISH"
+            and trend_4h == "BEARISH"
+            and adx >= 30
+            and di_bear
+            and vol_ratio >= 2.0
+            and not late_sell
+            and sell_room_rr >= 1.5
+        )
+
+        strong_breakout_confirmation = (
+            is_buy
+            and bull_break
+            and closes[-1] > opens[-1]
+            and trend_1h == "BULLISH"
+            and trend_4h == "BULLISH"
+            and adx >= 30
+            and di_bull
+            and vol_ratio >= 2.0
+            and not late_buy
+            and buy_room_rr >= 1.5
+        )
+
+        direction_candle = (
+            direction_candle
+            or strong_breakdown_confirmation
+            or strong_breakout_confirmation
+        )
         direction_structure = bull_structure if is_buy else bear_structure
         direction_di = di_bull if is_buy else di_bear
         direction_htf = "BULLISH" if is_buy else "BEARISH"
