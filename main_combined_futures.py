@@ -1403,12 +1403,12 @@ def get_signal(symbol):
 
         checks = {
             "Higher timeframe": htf_safe and htf_confirmed,
-            "Signal strength": score >= 70,
-            "Setup quality": direction_quality >= 65,
+            "Signal strength": score >= 60,
+            "Setup quality": direction_quality >= 55,
             "Trend momentum": adx >= 20 and direction_di,
             "Volume": vol_ratio >= 0.80,
             "Candle confirmation": direction_candle,
-            "Target room": direction_room >= 1.5,
+            "Target room": direction_room >= 1.2,
             "Entry distance": not (
                 late_buy if is_buy else late_sell
             ),
@@ -1668,11 +1668,14 @@ def main():
             signal = result["signal"]
 
             
+            
             sl, tp1, tp2 = calculate_trade_levels(
                 price, atr, signal,
                 result["support"], result["resistance"],
-                result["sell_obstacle"], result["buy_obstacle"],
+                result["nearest_support"],
+                result["nearest_resistance"],
             )
+            
             
             
             duration = estimate_duration(price, tp2, atr)
