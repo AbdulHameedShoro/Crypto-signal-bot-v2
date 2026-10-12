@@ -1467,18 +1467,17 @@ def get_signal(symbol):
     }
 
 
-
 def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
     """
     Calculate structure-aware SL, TP1 and TP2.
-
-    ns = nearest relevant support / sell obstacle
-    nr = nearest relevant resistance / buy obstacle
-
-    Returns (None, None, None) when the setup is unsuitable.
+    Print diagnostic reasons when validation fails.
     """
 
     if atr <= 0 or price <= 0:
+        print(
+            f"SLTP_BLOCK | REASON=INVALID_INPUT | "
+            f"PRICE={price} ATR={atr}"
+        )
         return None, None, None
 
     if signal not in ("🟢 BUY", "🔴 SELL"):
@@ -1486,13 +1485,10 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
 
     buffer = atr * STRUCTURE_BUFFER_ATR
     atr_stop = atr * STOP_ATR_MULTIPLIER
-
-    # Do not allow an excessively wide structural stop.
     max_risk = atr * 2.5
 
     if signal == "🟢 BUY":
 
-        # Use a confirmed support below entry, if available.
         supports = [
             level for level in (support, ns)
             if level is not None and 0 < level < price
@@ -1507,15 +1503,28 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
         risk = price - sl
 
         if risk <= 0 or risk > max_risk or sl <= 0:
+            print(
+                f"SLTP_BLOCK BUY | REASON=INVALID_STOP | "
+                f"PRICE={price:.8g} ATR={atr:.8g} "
+                f"SL={sl:.8g} RISK={risk:.8g} "
+                f"MAX_RISK={max_risk:.8g}"
+            )
             return None, None, None
 
-        # Use the same forward barrier as the signal filter.
         obstacle = nr if nr is not None and nr > price else None
 
         if obstacle is not None:
             available_room = obstacle - buffer - price
 
             if available_room < risk * 1.5:
+                print(
+                    f"SLTP_BLOCK BUY | REASON=INSUFFICIENT_ROOM | "
+                    f"PRICE={price:.8g} ATR={atr:.8g} "
+                    f"SL={sl:.8g} RISK={risk:.8g} "
+                    f"OBSTACLE={obstacle:.8g} "
+                    f"AVAILABLE_ROOM={available_room:.8g} "
+                    f"REQUIRED_ROOM={risk * 1.5:.8g}"
+                )
                 return None, None, None
 
         tp1 = price + risk * TP1_RR
@@ -1525,13 +1534,17 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
             tp1 = min(tp1, obstacle - buffer)
 
         if tp1 <= price or tp2 <= tp1:
+            print(
+                f"SLTP_BLOCK BUY | REASON=INVALID_TARGETS | "
+                f"PRICE={price:.8g} SL={sl:.8g} "
+                f"TP1={tp1:.8g} TP2={tp2:.8g}"
+            )
             return None, None, None
 
         return sl, tp1, tp2
 
     if signal == "🔴 SELL":
 
-        # Use a confirmed resistance above entry, if available.
         resistances = [
             level for level in (resistance, nr)
             if level is not None and level > price
@@ -1546,6 +1559,12 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
         risk = sl - price
 
         if risk <= 0 or risk > max_risk:
+            print(
+                f"SLTP_BLOCK SELL | REASON=INVALID_STOP | "
+                f"PRICE={price:.8g} ATR={atr:.8g} "
+                f"SL={sl:.8g} RISK={risk:.8g} "
+                f"MAX_RISK={max_risk:.8g}"
+            )
             return None, None, None
 
         obstacle = ns if ns is not None and ns < price else None
@@ -1554,6 +1573,14 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
             available_room = price - (obstacle + buffer)
 
             if available_room < risk * 1.5:
+                print(
+                    f"SLTP_BLOCK SELL | REASON=INSUFFICIENT_ROOM | "
+                    f"PRICE={price:.8g} ATR={atr:.8g} "
+                    f"SL={sl:.8g} RISK={risk:.8g} "
+                    f"OBSTACLE={obstacle:.8g} "
+                    f"AVAILABLE_ROOM={available_room:.8g} "
+                    f"REQUIRED_ROOM={risk * 1.5:.8g}"
+                )
                 return None, None, None
 
         tp1 = price - risk * TP1_RR
@@ -1563,12 +1590,18 @@ def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
             tp1 = max(tp1, obstacle + buffer)
 
         if tp1 >= price or tp2 >= tp1 or tp2 <= 0:
+            print(
+                f"SLTP_BLOCK SELL | REASON=INVALID_TARGETS | "
+                f"PRICE={price:.8g} SL={sl:.8g} "
+                f"TP1={tp1:.8g} TP2={tp2:.8g}"
+            )
             return None, None, None
 
         return sl, tp1, tp2
 
     return None, None, None
-    
+        
+
 
 
 def estimate_duration(price, tp2, atr):
