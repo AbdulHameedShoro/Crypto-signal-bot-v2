@@ -1316,10 +1316,29 @@ def get_signal(symbol):
             and buy_room_rr >= 1.5
         )
 
+        
+        # Alternative confirmation for exceptionally strong setups.
+        # All other trade eligibility checks remain active.
+        strong_setup_confirmation = (
+            score >= 85
+            and direction_quality >= 75
+            and adx >= 30
+            and vol_ratio >= 1.50
+            and trend_1h == ("BULLISH" if is_buy else "BEARISH")
+            and trend_4h == ("BULLISH" if is_buy else "BEARISH")
+            and (di_bull if is_buy else di_bear)
+            and (bull_momentum if is_buy else bear_momentum)
+            and not (late_buy if is_buy else late_sell)
+            and direction_room >= 1.5
+        )
+
         direction_candle = (
             direction_candle
             or strong_breakdown_confirmation
             or strong_breakout_confirmation
+            or strong_setup_confirmation
+        )
+        
         )
         direction_structure = bull_structure if is_buy else bear_structure
         direction_di = di_bull if is_buy else di_bear
