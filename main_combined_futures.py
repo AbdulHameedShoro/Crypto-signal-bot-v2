@@ -1338,8 +1338,8 @@ def get_signal(symbol):
             or strong_breakout_confirmation
             or strong_setup_confirmation
         )
+
         
-        )
         direction_structure = bull_structure if is_buy else bear_structure
         direction_di = di_bull if is_buy else di_bear
         direction_htf = "BULLISH" if is_buy else "BEARISH"
