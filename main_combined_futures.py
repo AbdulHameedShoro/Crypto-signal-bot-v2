@@ -1247,7 +1247,7 @@ def get_signal(symbol):
                 blocked_reasons.append("BUY_RSI")
             if (
                 not (bull_candle_ok or bull_pattern_confirmed)
-                and buy_quality < 65
+                and buy_quality < 60
             ):
                 blocked_reasons.append("BUY_CANDLE_QUALITY")
 
@@ -1276,7 +1276,7 @@ def get_signal(symbol):
                 blocked_reasons.append("SELL_RSI")
             if (
                 not (bear_candle_ok or bear_pattern_confirmed)
-                and sell_quality < 65
+                and sell_quality < 60
             ):
                 blocked_reasons.append("SELL_CANDLE_QUALITY")
                 
