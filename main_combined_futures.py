@@ -1,12 +1,41 @@
 # -*- coding: utf-8 -*-
-# NOTE: this file is pure ASCII; emojis/Urdu are written as escapes so
-# copy-paste or editor encoding can never corrupt them.
-import os
+"""
+Crypto Signal Bot V5 - Bitget USDT perpetuals, 15m signals.
+
+Design idea (different from V4):
+  * Score-based, not a long chain of AND conditions. Every setup collects
+    points (trend, higher timeframe, ADX, volume, RSI, candle, room).
+  * Only a few HARD gates exist (volume floor, ranging market, no room,
+    stop too wide, 1H and 4H both against). Everything else is a soft score.
+  * Three setups: Pullback to EMA20 in a trend, Breakout, Breakout-Retest.
+  * Same code path for live scanning and backtesting, so a backtest shows
+    what the live bot would really have done.
+
+Usage:
+  python crypto_signal_bot_v5.py                      live scan -> Discord
+  python crypto_signal_bot_v5.py --no-discord         live scan, print only
+  python crypto_signal_bot_v5.py --backtest           45-day backtest, all coins
+  python crypto_signal_bot_v5.py --backtest --days 60 --min-score 70
+  python crypto_signal_bot_v5.py --backtest --coins BTCUSDT,ETHUSDT
+"""
+import argparse
+import bisect
+import csv
 import math
+import os
+import statistics
+import sys
 import time
+
 import requests
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+BITGET_URL = "https://api.bitget.com"
+TIMEOUT = 12
+
+BASE_MS = 15 * 60 * 1000
+HOUR_MS = 60 * 60 * 1000
+DAY_MS = 24 * HOUR_MS
 
 COINS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
@@ -14,1663 +43,768 @@ COINS = [
     "CKBUSDT",
 ]
 
-# Public USDT perpetual market data from Bitget.
-BITGET_URL = "https://api.bitget.com"
-TIMEFRAME = "15m"
-CANDLE_LIMIT = 200
-TIMEOUT = 12
-
-# Signal labels (single source of truth, avoids emoji mismatches).
-SIG_BUY = "\U0001f7e2 BUY"
-SIG_SELL = "\U0001f534 SELL"
-SIG_WAIT = "\U0001f7e1 WAIT"
-
-# Balanced settings: not as strict as the original filter, but still confirmed.
-MIN_SIGNAL_SCORE = 55
-PAPER_SIGNAL_SCORE = 55
-STOP_ATR_MULTIPLIER = 1.5
-TP1_RR = 1.5
-TP2_RR = 2.5
-STRUCTURE_LOOKBACK = 20
-STRUCTURE_BUFFER_ATR = 0.15
-MAX_ENTRY_DISTANCE_ATR = 1.8
-STRONG_VOLUME_RATIO = 1.10
-WEAK_VOLUME_RATIO = 0.60
-MIN_QUALITY_SCORE = 45
-
 # ---------------------------------------------------------------------------
-# Relaxed fallback mode.
-# Only evaluated when the ORIGINAL (standard) rules give no BUY/SELL, so every
-# signal the old bot produced is still produced identically.
-# Set RELAXED_MODE = False to restore the exact old behaviour.
+# Settings. These are reasoned starting values, NOT optimised numbers.
+# Use the backtest to check them before trusting them.
 # ---------------------------------------------------------------------------
-RELAXED_MODE = True
-RELAXED_MIN_SCORE = 50
-RELAXED_SCORE_GAP = 10   # winning side must beat the other side by this much
+CFG = {
+    "MIN_SCORE": 65,          # minimum score (0-100) for a signal
+    "GRADE_A": 80,
+    "GRADE_B": 70,
+    "HARD_MIN_VOL": 0.50,     # volume / median of last 40 candles
+    "MIN_ADX": 15,            # below this the market is treated as ranging
+    "MAX_DIST_ATR": 2.0,      # max distance from EMA20 (in ATR)
+    "PULLBACK_MAX_DIST_ATR": 1.5,
+    "MIN_ROOM_R": 1.2,        # min room (in R) before nearest obstacle
+    "MAX_RISK_ATR": 2.5,      # reject if stop is wider than this
+    "SL_ATR": 1.2,            # minimum stop distance (ATR)
+    "SL_BUFFER_ATR": 0.15,
+    "TP1_R": 1.5,
+    "TP2_R": 2.5,
+    # backtest only
+    "FEE_PCT": 0.06,          # taker fee per side, percent
+    "SLIPPAGE_PCT": 0.01,     # per side, percent
+    "MAX_HOLD": 96,           # candles (24h)
+}
+
+BUY_ICON = "\U0001F7E2"
+SELL_ICON = "\U0001F534"
+WAIT_ICON = "\U0001F7E1"
+EYE_ICON = "\U0001F440"
 
 
-def get_klines(symbol):
-    """Fetch Bitget USDT-Futures candles in chronological order."""
-
-    response = requests.get(
-        f"{BITGET_URL}/api/v2/mix/market/candles",
-        params={
-            "symbol": symbol,
-            "productType": "USDT-FUTURES",
-            "granularity": "15m",
-            "limit": str(CANDLE_LIMIT),
-        },
-        headers={"Accept": "application/json"},
-        timeout=TIMEOUT,
-    )
-    response.raise_for_status()
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise ValueError(
-            f"Bitget returned invalid JSON for {symbol}: "
-            f"{response.text[:200]}"
-        ) from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Unexpected Bitget response for {symbol}")
-
-    if payload.get("code") != "00000":
-        raise ValueError(
-            f"Bitget API error for {symbol}: "
-            f"{payload.get('code')} | {payload.get('msg')}"
-        )
-
-    rows = payload.get("data")
-
-    if not isinstance(rows, list) or len(rows) < 60:
-        raise ValueError(f"Not enough Bitget Futures candles for {symbol}")
-
-    if not all(
-        isinstance(candle, (list, tuple)) and len(candle) >= 6
-        for candle in rows
-    ):
-        raise ValueError(f"Invalid Bitget candle format for {symbol}")
-
-    try:
-        rows.sort(key=lambda candle: int(candle[0]))
-    except (TypeError, ValueError, IndexError) as exc:
-        raise ValueError(
-            f"Invalid Bitget candle timestamps for {symbol}"
-        ) from exc
-
-    return rows
+# ===========================================================================
+# Indicators (full series, so backtests are fast and match live exactly)
+# ===========================================================================
+def ema_series(values, period):
+    n = len(values)
+    if n == 0:
+        return []
+    if n < period:
+        return [values[-1]] * n
+    k = 2.0 / (period + 1)
+    e = sum(values[:period]) / period
+    out = [e] * n
+    for i in range(period, n):
+        e = (values[i] - e) * k + e
+        out[i] = e
+    return out
 
 
-def get_higher_timeframe_trend(symbol, granularity, duration_ms):
-    """Get trend from fully closed 1H or 4H Bitget candles."""
-    try:
-        response = requests.get(
-            f"{BITGET_URL}/api/v2/mix/market/candles",
-            params={
-                "symbol": symbol,
-                "productType": "USDT-FUTURES",
-                "granularity": granularity,
-                "limit": "100",
-            },
-            headers={"Accept": "application/json"},
-            timeout=TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
+def rsi_series(values, period=14):
+    n = len(values)
+    out = [50.0] * n
+    if n <= period:
+        return out
+    gains = [0.0] * n
+    losses = [0.0] * n
+    for i in range(1, n):
+        ch = values[i] - values[i - 1]
+        gains[i] = max(ch, 0.0)
+        losses[i] = max(-ch, 0.0)
+    ag = sum(gains[1:period + 1]) / period
+    al = sum(losses[1:period + 1]) / period
 
-        if not isinstance(payload, dict) or payload.get("code") != "00000":
-            return "UNKNOWN"
+    def val(a, b):
+        if b == 0:
+            return 100.0 if a > 0 else 50.0
+        return 100.0 - 100.0 / (1.0 + a / b)
 
-        rows = payload.get("data")
-        if not isinstance(rows, list):
-            return "UNKNOWN"
-
-        now_ms = int(time.time() * 1000)
-        closed = [
-            candle for candle in rows
-            if isinstance(candle, (list, tuple))
-            and len(candle) >= 6
-            and int(candle[0]) + duration_ms <= now_ms
-        ]
-
-        closed.sort(key=lambda candle: int(candle[0]))
-
-        if len(closed) < 55:
-            return "UNKNOWN"
-
-        closes = [float(candle[4]) for candle in closed]
-        price = closes[-1]
-        ema20 = calculate_ema(closes, 20)
-        ema50 = calculate_ema(closes, 50)
-
-        if price > ema20 > ema50:
-            return "BULLISH"
-        if price < ema20 < ema50:
-            return "BEARISH"
-        return "NEUTRAL"
-
-    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
-        print(f"Higher timeframe error {symbol} {granularity}: {error}")
-        return "UNKNOWN"
+    out[period] = val(ag, al)
+    for i in range(period + 1, n):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+        out[i] = val(ag, al)
+    return out
 
 
-def calculate_ema(values, period):
-    if not values:
-        return 0.0
-    if len(values) < period:
-        return values[-1]
-    k = 2 / (period + 1)
-    ema = sum(values[:period]) / period
-    for price in values[period:]:
-        ema = (price - ema) * k + ema
-    return ema
+def atr_series(h, l, c, period=14):
+    n = len(c)
+    out = [0.0] * n
+    if n <= period:
+        return out
+    tr = [0.0] * n
+    for i in range(1, n):
+        tr[i] = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+    a = sum(tr[1:period + 1]) / period
+    out[period] = a
+    for i in range(period + 1, n):
+        a = (a * (period - 1) + tr[i]) / period
+        out[i] = a
+    first = out[period]
+    for i in range(period):
+        out[i] = first
+    return out
 
 
-def calculate_rsi(values, period=14):
-    if len(values) <= period:
-        return 50.0
-
-    gains, losses = [], []
-    for i in range(1, len(values)):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0.0))
-        losses.append(max(-change, 0.0))
-
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-
-    if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
-
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-
-def calculate_atr(highs, lows, closes, period=14):
-    if len(closes) <= period:
-        return 0.0
-
-    trs = []
-    for i in range(1, len(closes)):
-        trs.append(max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        ))
-
-    atr = sum(trs[:period]) / period
-    for tr in trs[period:]:
-        atr = (atr * (period - 1) + tr) / period
-    return atr
-
-
-def calculate_adx(highs, lows, closes, period=14):
-    """Return ADX, +DI and -DI using Wilder smoothing."""
-    if len(closes) < period * 2 + 1:
-        return 0.0, 0.0, 0.0
-
-    trs, plus_dm, minus_dm = [], [], []
-    for i in range(1, len(closes)):
-        trs.append(max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        ))
-        up = highs[i] - highs[i - 1]
-        down = lows[i - 1] - lows[i]
-        plus_dm.append(up if up > down and up > 0 else 0.0)
-        minus_dm.append(down if down > up and down > 0 else 0.0)
-
-    if len(trs) < period * 2:
-        return 0.0, 0.0, 0.0
-
-    atr_sum = sum(trs[:period])
-    plus_sum = sum(plus_dm[:period])
-    minus_sum = sum(minus_dm[:period])
-    dxs = []
-    pdi = mdi = 0.0
-
-    for i in range(period - 1, len(trs)):
-        if i >= period:
-            atr_sum = atr_sum - atr_sum / period + trs[i]
-            plus_sum = plus_sum - plus_sum / period + plus_dm[i]
-            minus_sum = minus_sum - minus_sum / period + minus_dm[i]
-
-        if atr_sum <= 0:
-            dxs.append(0.0)
-            continue
-
-        pdi = plus_sum / atr_sum * 100
-        mdi = minus_sum / atr_sum * 100
-        total = pdi + mdi
-        dxs.append(abs(pdi - mdi) / total * 100 if total > 0 else 0.0)
-
-    if len(dxs) < period:
-        return 0.0, pdi, mdi
-
-    adx = sum(dxs[:period]) / period
-    for dx in dxs[period:]:
-        adx = ((adx * (period - 1)) + dx) / period
-
+def adx_series(h, l, c, period=14):
+    """Wilder ADX, +DI, -DI as aligned lists."""
+    n = len(c)
+    adx = [0.0] * n
+    pdi = [0.0] * n
+    mdi = [0.0] * n
+    if n < period * 2 + 2:
+        return adx, pdi, mdi
+    tr = [0.0] * n
+    pdm = [0.0] * n
+    mdm = [0.0] * n
+    for i in range(1, n):
+        tr[i] = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+        up = h[i] - h[i - 1]
+        dn = l[i - 1] - l[i]
+        pdm[i] = up if (up > dn and up > 0) else 0.0
+        mdm[i] = dn if (dn > up and dn > 0) else 0.0
+    trs = sum(tr[1:period + 1])
+    ps = sum(pdm[1:period + 1])
+    ms = sum(mdm[1:period + 1])
+    dx = [0.0] * n
+    for i in range(period, n):
+        if i > period:
+            trs = trs - trs / period + tr[i]
+            ps = ps - ps / period + pdm[i]
+            ms = ms - ms / period + mdm[i]
+        if trs > 0:
+            p = 100.0 * ps / trs
+            m = 100.0 * ms / trs
+            t = p + m
+            pdi[i], mdi[i] = p, m
+            dx[i] = 100.0 * abs(p - m) / t if t > 0 else 0.0
+    first = period * 2
+    a = sum(dx[period:first]) / period
+    adx[first - 1] = a
+    for i in range(first, n):
+        a = (a * (period - 1) + dx[i]) / period
+        adx[i] = a
     return adx, pdi, mdi
 
 
-def scan_candle_patterns(opens, highs, lows, closes):
-    if len(closes) < 3:
+# ===========================================================================
+# Data helpers
+# ===========================================================================
+def build_data(rows):
+    """rows: closed 15m candles [ts, o, h, l, c, v, ...] ascending."""
+    d = {
+        "ts": [int(r[0]) for r in rows],
+        "o": [float(r[1]) for r in rows],
+        "h": [float(r[2]) for r in rows],
+        "l": [float(r[3]) for r in rows],
+        "c": [float(r[4]) for r in rows],
+        "v": [float(r[5]) for r in rows],
+    }
+    d["ema20"] = ema_series(d["c"], 20)
+    d["ema50"] = ema_series(d["c"], 50)
+    d["rsi"] = rsi_series(d["c"])
+    d["atr"] = atr_series(d["h"], d["l"], d["c"])
+    d["adx"], d["pdi"], d["mdi"] = adx_series(d["h"], d["l"], d["c"])
+    daily = {}
+    for k, t in enumerate(d["ts"]):
+        day = t // DAY_MS
+        e = daily.get(day)
+        if e is None:
+            daily[day] = [d["h"][k], d["l"][k], 1]
+        else:
+            e[0] = max(e[0], d["h"][k])
+            e[1] = min(e[1], d["l"][k])
+            e[2] += 1
+    d["daily"] = daily
+    return d
+
+
+def prev_day_levels(d, i):
+    day = d["ts"][i] // DAY_MS
+    e = d["daily"].get(day - 1)
+    if e and e[2] >= 24:
+        return e[0], e[1]
+    return None, None
+
+
+def build_htf(rows, dur_ms):
+    """Trend state per higher-timeframe bar (rows ascending)."""
+    closes = [float(r[4]) for r in rows]
+    e20 = ema_series(closes, 20)
+    e50 = ema_series(closes, 50)
+    trend = []
+    for k in range(len(closes)):
+        if k < 55:
+            trend.append("UNKNOWN")
+        elif closes[k] > e20[k] > e50[k]:
+            trend.append("BULLISH")
+        elif closes[k] < e20[k] < e50[k]:
+            trend.append("BEARISH")
+        else:
+            trend.append("NEUTRAL")
+    ends = [int(r[0]) + dur_ms for r in rows]
+    return {"ends": ends, "trend": trend}
+
+
+def htf_trend_at(htf, t_ms):
+    """Trend of the latest higher-timeframe bar fully closed by t_ms."""
+    idx = bisect.bisect_right(htf["ends"], t_ms) - 1
+    return htf["trend"][idx] if idx >= 0 else "UNKNOWN"
+
+
+def resample(rows, dur_ms):
+    need = dur_ms // BASE_MS
+    groups = {}
+    for r in rows:
+        groups.setdefault(int(r[0]) // dur_ms, []).append(r)
+    out = []
+    for key in sorted(groups):
+        g = sorted(groups[key], key=lambda r: int(r[0]))
+        if len(g) < need:
+            continue
+        out.append([
+            key * dur_ms,
+            float(g[0][1]),
+            max(float(x[2]) for x in g),
+            min(float(x[3]) for x in g),
+            float(g[-1][4]),
+            sum(float(x[5]) for x in g),
+        ])
+    return out
+
+
+# ===========================================================================
+# Signal engine
+# ===========================================================================
+def candle_flags(o_, h_, l_, c_, s):
+    """(strong, rejection) candle in direction s (+1 long, -1 short)."""
+    rng = h_ - l_
+    if rng <= 0:
         return False, False
-
-    o1, h1, l1, c1 = opens[-2], highs[-2], lows[-2], closes[-2]
-    o2, h2, l2, c2 = opens[-1], highs[-1], lows[-1], closes[-1]
-
-    body1 = abs(c1 - o1)
-    body2 = abs(c2 - o2)
-
-    range2 = max(h2 - l2, 1e-12)
-
-    lower_wick2 = min(o2, c2) - l2
-    upper_wick2 = h2 - max(o2, c2)
-    close_position2 = (c2 - l2) / range2
-
-    # Engulfing: current candle covers the previous real body.
-    bull_engulfing = (
-        c1 < o1 and c2 > o2
-        and o2 <= c1 and c2 >= o1
-        and body2 >= body1 * 0.90
+    body = abs(c_ - o_)
+    cp = (c_ - l_) / rng if s == 1 else (h_ - c_) / rng
+    wick = (min(o_, c_) - l_) if s == 1 else (h_ - max(o_, c_))
+    strong = (c_ - o_) * s > 0 and body / rng >= 0.40 and cp >= 0.60
+    reject = (
+        wick >= body * 0.75 and wick / rng >= 0.30
+        and cp >= 0.55 and (c_ - o_) * s >= 0
     )
-    bear_engulfing = (
-        c1 > o1 and c2 < o2
-        and o2 >= c1 and c2 <= o1
-        and body2 >= body1 * 0.90
-    )
-
-    # Hammer-like bullish rejection.
-    bull_hammer = (
-        lower_wick2 >= max(body2 * 2.0, range2 * 0.45)
-        and upper_wick2 <= range2 * 0.25
-        and close_position2 >= 0.65
-        and c2 > l2 + range2 * 0.65
-    )
-
-    # Shooting-star-like bearish rejection.
-    bear_star = (
-        upper_wick2 >= max(body2 * 2.0, range2 * 0.45)
-        and lower_wick2 <= range2 * 0.25
-        and close_position2 <= 0.35
-        and c2 < h2 - range2 * 0.65
-    )
-
-    # Strong directional candle closing near its extreme.
-    bull_strong = (
-        c2 > o2
-        and body2 / range2 >= 0.60
-        and close_position2 >= 0.80
-    )
-    bear_strong = (
-        c2 < o2
-        and body2 / range2 >= 0.60
-        and close_position2 <= 0.20
-    )
-
-    # Three-candle Morning Star and Evening Star patterns.
-    o0, c0 = opens[-3], closes[-3]
-    body0 = abs(c0 - o0)
-    range0 = max(highs[-3] - lows[-3], 1e-12)
-
-    morning_star = (
-        c0 < o0
-        and body0 / range0 >= 0.45
-        and body1 <= body0 * 0.60
-        and c2 > o2
-        and body2 >= body0 * 0.40
-        and c2 >= (o0 + c0) / 2
-    )
-    evening_star = (
-        c0 > o0
-        and body0 / range0 >= 0.45
-        and body1 <= body0 * 0.60
-        and c2 < o2
-        and body2 >= body0 * 0.40
-        and c2 <= (o0 + c0) / 2
-    )
-
-    bullish = bull_engulfing or bull_hammer or bull_strong or morning_star
-    bearish = bear_engulfing or bear_star or bear_strong or evening_star
-
-    return bullish, bearish
+    return strong, reject
 
 
-def get_previous_day_levels(candles):
-    now_ms = int(time.time() * 1000)
-    day_ms = 24 * 60 * 60 * 1000
-
-    today_start = (now_ms // day_ms) * day_ms
-    yesterday_start = today_start - day_ms
-
-    previous_day = [
-        candle for candle in candles
-        if yesterday_start <= int(candle[0]) < today_start
-        and int(candle[0]) + 15 * 60 * 1000 <= now_ms
-    ]
-
-    if not previous_day:
-        return None, None
-
-    previous_high = max(float(c[2]) for c in previous_day)
-    previous_low = min(float(c[3]) for c in previous_day)
-
-    return previous_high, previous_low
+def nearest_pivot(h, l, i, s, price, lookback=120, n=3):
+    """Nearest confirmed swing high above (s=1) / swing low below (s=-1)."""
+    best = None
+    start = max(n, i - lookback)
+    for j in range(start, i - n + 1):
+        if s == 1:
+            if h[j] > price and h[j] == max(h[j - n:j + n + 1]):
+                if best is None or h[j] < best:
+                    best = h[j]
+        else:
+            if l[j] < price and l[j] == min(l[j - n:j + n + 1]):
+                if best is None or l[j] > best:
+                    best = l[j]
+    return best
 
 
-def get_support_resistance(highs, lows, lookback=20):
-    window = min(lookback, len(highs) - 1)
-    if window < 1:
-        return lows[-1], highs[-1]
-    return min(lows[-window - 1:-1]), max(highs[-window - 1:-1])
-
-
-def nearest_support(lows, price, atr, lookback=30):
-    """Return the nearest confirmed local swing low below price."""
-    start = max(1, len(lows) - lookback - 1)
-    levels = []
-    for i in range(start, len(lows) - 1):
-        if lows[i] < price and lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1]:
-            levels.append(lows[i])
-    return max(levels) if levels else None
-
-
-def nearest_resistance(highs, price, atr, lookback=30):
-    """Return the nearest confirmed local swing high above price."""
-    start = max(1, len(highs) - lookback - 1)
-    levels = []
-    for i in range(start, len(highs) - 1):
-        if highs[i] > price and highs[i] >= highs[i - 1] and highs[i] >= highs[i + 1]:
-            levels.append(highs[i])
-    return min(levels) if levels else None
-
-
-def quality_grade(score):
-    if score >= 90:
-        return "A+"
-    if score >= 80:
+def grade_of(score, cfg):
+    if score >= cfg["GRADE_A"]:
         return "A"
-    if score >= 70:
+    if score >= cfg["GRADE_B"]:
         return "B"
     return "C"
 
 
-def get_signal(symbol):
-    candles = get_klines(symbol)
-    previous_day_high, previous_day_low = get_previous_day_levels(candles)
+def evaluate_side(d, i, s, t1h, t4h, cfg):
+    o, h, l, c, v = d["o"], d["h"], d["l"], d["c"], d["v"]
+    price = c[i]
+    atr = d["atr"][i]
+    e20, e50 = d["ema20"][i], d["ema50"][i]
+    adx, rsi = d["adx"][i], d["rsi"][i]
+    side = "BUY" if s == 1 else "SELL"
 
-    # Keep only fully closed 15-minute Bitget candles.
-    now_ms = int(time.time() * 1000)
-    candle_duration_ms = 15 * 60 * 1000
+    base_vol = statistics.median(v[i - 40:i])
+    vr = v[i] / base_vol if base_vol > 0 else 0.0
+    dist = s * (price - e20) / atr
+    strong, reject = candle_flags(o[i], h[i], l[i], c[i], s)
+    cand_ok = strong or reject
+    di_ok = s * (d["pdi"][i] - d["mdi"][i]) > 0
+    trend15 = s * (e20 - e50) > 0
+    ema50_slope = s * (e50 - d["ema50"][i - 6]) > 0
+    ema20_slope = s * (e20 - d["ema20"][i - 3]) > 0
+    beyond_ema = s * (price - e20) > 0
 
-    closed = [
-        candle for candle in candles
-        if int(candle[0]) + candle_duration_ms <= now_ms
-    ]
-
-    if len(closed) < 60:
-        return None
-
-    opens = [float(c[1]) for c in closed]
-    highs = [float(c[2]) for c in closed]
-    lows = [float(c[3]) for c in closed]
-    closes = [float(c[4]) for c in closed]
-
-    bull_pattern, bear_pattern = scan_candle_patterns(
-        opens, highs, lows, closes
+    # ---- setups ----------------------------------------------------------
+    ext = min(l[i - 4:i + 1]) if s == 1 else max(h[i - 4:i + 1])
+    touched = s * (e20 - ext) >= -0.25 * atr
+    pullback = (
+        trend15 and ema20_slope and touched and beyond_ema and cand_ok
+        and dist <= cfg["PULLBACK_MAX_DIST_ATR"]
     )
 
-    # Give candle patterns more importance near market structure.
-    recent_support, recent_resistance = get_support_resistance(
-        highs, lows, STRUCTURE_LOOKBACK
-    )
-
-    current_price = closes[-1]
-    pattern_atr = calculate_atr(highs, lows, closes)
-
-    near_support = (
-        pattern_atr > 0
-        and current_price - recent_support <= pattern_atr * 0.50
-        and current_price >= recent_support
-    )
-    near_resistance = (
-        pattern_atr > 0
-        and recent_resistance - current_price <= pattern_atr * 0.50
-        and current_price <= recent_resistance
-    )
-
-    bull_pattern_confirmed = bull_pattern and near_support
-    bear_pattern_confirmed = bear_pattern and near_resistance
-
-    volumes = [float(c[5]) for c in closed]
-    price = closes[-1]
-
-    ema20 = calculate_ema(closes, 20)
-    ema50 = calculate_ema(closes, 50)
-    rsi = calculate_rsi(closes)
-
-    trend_1h = get_higher_timeframe_trend(symbol, "1H", 60 * 60 * 1000)
-    trend_4h = get_higher_timeframe_trend(symbol, "4H", 4 * 60 * 60 * 1000)
-
-    atr = calculate_atr(highs, lows, closes)
-    adx, pdi, mdi = calculate_adx(highs, lows, closes)
-
-    di_bull = pdi > mdi
-    di_bear = mdi > pdi
-
-    ema20_prev = calculate_ema(closes[:-3], 20)
-    ema50_prev = calculate_ema(closes[:-3], 50)
-    ema20_up = ema20 > ema20_prev
-    ema20_down = ema20 < ema20_prev
-    ema50_up = ema50 > ema50_prev
-    ema50_down = ema50 < ema50_prev
-
-    bull_momentum = price > closes[-4]
-    bear_momentum = price < closes[-4]
-
-    avg_vol = sum(volumes[-21:-1]) / 20
-    vol_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 0.0
-    vol_strong = vol_ratio >= STRONG_VOLUME_RATIO
-    vol_weak = vol_ratio < WEAK_VOLUME_RATIO
-
-    candle_age_minutes = (
-        now_ms - (int(closed[-1][0]) + candle_duration_ms)
-    ) / 60000
-
-    print(
-        f"VOLUME_CHECK {symbol} | "
-        f"LAST_VOLUME={volumes[-1]:.4f} | "
-        f"AVG_20_VOLUME={avg_vol:.4f} | "
-        f"RATIO={vol_ratio:.3f} | "
-        f"CANDLE_AGE_MIN={candle_age_minutes:.1f} | "
-        f"CLOSED_CANDLES={len(closed)}"
-    )
-
-    support, resistance = get_support_resistance(
-        highs, lows, STRUCTURE_LOOKBACK
-    )
-    ns = nearest_support(lows, price, atr)
-    nr = nearest_resistance(highs, price, atr)
-
-    bull_ema = price > ema20 and ema20 > ema50 and ema20_up
-    bear_ema = price < ema20 and ema20 < ema50 and ema20_down
-
-    # Breakout level: previous N candles, excluding the signal candle.
-    prev_res = max(highs[-STRUCTURE_LOOKBACK - 1:-1])
-    prev_sup = min(lows[-STRUCTURE_LOOKBACK - 1:-1])
-    bull_break = price > prev_res and closes[-2] <= prev_res
-    bear_break = price < prev_sup and closes[-2] >= prev_sup
-
-    # Retest must use a fixed level from before the breakout candle.
-    retest_res = max(highs[-STRUCTURE_LOOKBACK - 2:-2])
-    retest_sup = min(lows[-STRUCTURE_LOOKBACK - 2:-2])
-    bull_retest = (
-        closes[-2] > retest_res and lows[-1] <= retest_res and price > retest_res
-    )
-    bear_retest = (
-        closes[-2] < retest_sup and highs[-1] >= retest_sup and price < retest_sup
-    )
-    bull_structure = bull_break or bull_retest
-    bear_structure = bear_break or bear_retest
-
-    dist_ema = abs(price - ema20) / atr if atr > 0 else 0.0
-
-    # Standard distance limit is 1.8 ATR; allow 2.2 ATR only for strong,
-    # confirmed breakouts.
-    strong_buy_breakout = (
-        bull_structure
-        and price > ema20
-        and ema20_up
-        and di_bull
-        and adx >= 20
-        and vol_ratio >= 1.50
-        and trend_1h == "BULLISH"
-        and closes[-1] > opens[-1]
-    )
-    strong_sell_breakout = (
-        bear_structure
-        and price < ema20
-        and ema20_down
-        and di_bear
-        and adx >= 20
-        and vol_ratio >= 1.50
-        and trend_1h == "BEARISH"
-        and closes[-1] < opens[-1]
-    )
-
-    buy_distance_limit = 2.2 if strong_buy_breakout else MAX_ENTRY_DISTANCE_ATR
-    sell_distance_limit = 2.2 if strong_sell_breakout else MAX_ENTRY_DISTANCE_ATR
-
-    late_buy = price > ema20 and dist_ema > buy_distance_limit
-    late_sell = price < ema20 and dist_ema > sell_distance_limit
-
-    # Strong momentum approaching support/resistance (watch only).
-    breakout_proximity = 0.35
-
-    buy_breakout_watch = (
-        atr > 0
-        and 0 <= resistance - price <= atr * breakout_proximity
-        and vol_ratio >= 1.50
-        and price > ema20
-        and ema20_up
-        and di_bull
-        and 50 <= rsi <= 75
-        and bull_momentum
-        and not late_buy
-    )
-    sell_breakdown_watch = (
-        atr > 0
-        and 0 <= price - support <= atr * breakout_proximity
-        and vol_ratio >= 1.50
-        and price < ema20
-        and ema20_down
-        and di_bear
-        and 25 <= rsi <= 50
-        and bear_momentum
-        and not late_sell
-    )
-
-    bull_rsi = 51 <= rsi <= 69
-    bear_rsi = 31 <= rsi <= 49
-
-    bull_rsi_continuation = (
-        rsi > 69 and adx >= 28 and di_bull and vol_strong
-        and bull_ema and bull_momentum and not late_buy
-    )
-    bear_rsi_continuation = (
-        rsi < 31 and adx >= 28 and di_bear and vol_strong
-        and bear_ema and bear_momentum and not late_sell
-    )
-    bull_rsi_ok = bull_rsi or bull_rsi_continuation
-    bear_rsi_ok = bear_rsi or bear_rsi_continuation
-    strong_trend = adx >= 25
-
-    # Trade clearance: next barrier in front of the proposed entry.
-    buy_obstacle = resistance if resistance > price else None
-    sell_obstacle = support if support < price else None
-
-    # Previous-day levels are additional possible barriers.
-    if previous_day_high is not None and previous_day_high > price:
-        buy_obstacle = (
-            min(buy_obstacle, previous_day_high)
-            if buy_obstacle is not None else previous_day_high
-        )
-
-    if previous_day_low is not None and previous_day_low < price:
-        sell_obstacle = (
-            max(sell_obstacle, previous_day_low)
-            if sell_obstacle is not None else previous_day_low
-        )
-
-    one_r_price = atr * STOP_ATR_MULTIPLIER
-
-    if buy_obstacle is None:
-        buy_room_rr = math.inf
+    if s == 1:
+        level = max(h[i - 20:i])
+        level2 = max(h[i - 21:i - 1])
+        ext_i = l[i]
     else:
-        buy_level = buy_obstacle - atr * STRUCTURE_BUFFER_ATR
-        buy_room_rr = (buy_level - price) / one_r_price if one_r_price > 0 else 0.0
+        level = min(l[i - 20:i])
+        level2 = min(l[i - 21:i - 1])
+        ext_i = h[i]
+    fresh = s * (price - level) > 0 and s * (c[i - 1] - level) <= 0
+    breakout = fresh and strong and vr >= 1.2 and adx >= 18 and beyond_ema
+    retest = (
+        s * (c[i - 1] - level2) > 0 and s * (level2 - ext_i) >= 0
+        and s * (price - level2) > 0 and cand_ok and vr >= 0.8 and beyond_ema
+    )
+    setup = (
+        "Breakout" if breakout
+        else "Retest" if retest
+        else "Pullback" if pullback
+        else None
+    )
 
-    if sell_obstacle is None:
-        sell_room_rr = math.inf
+    # ---- stop / targets / room ------------------------------------------
+    if s == 1:
+        struct = min(l[i - 7:i + 1]) - cfg["SL_BUFFER_ATR"] * atr
+        sl = min(price - cfg["SL_ATR"] * atr, struct)
     else:
-        sell_level = sell_obstacle + atr * STRUCTURE_BUFFER_ATR
-        sell_room_rr = (price - sell_level) / one_r_price if one_r_price > 0 else 0.0
+        struct = max(h[i - 7:i + 1]) + cfg["SL_BUFFER_ATR"] * atr
+        sl = max(price + cfg["SL_ATR"] * atr, struct)
+    risk = abs(price - sl)
+    tp1 = price + s * risk * cfg["TP1_R"]
+    tp2 = price + s * risk * cfg["TP2_R"]
 
-    min_room_buy = 1.00
-    min_room_sell = 1.00
-    enough_buy = buy_room_rr >= min_room_buy
-    enough_sell = sell_room_rr >= min_room_sell
-
-    # Candle quality: confirm direction without demanding a perfect candle.
-    last_open, last_close = opens[-1], closes[-1]
-    last_high, last_low = highs[-1], lows[-1]
-    candle_range = last_high - last_low
-    candle_body = abs(last_close - last_open)
-    upper_wick = last_high - max(last_open, last_close)
-    lower_wick = min(last_open, last_close) - last_low
-
-    body_ratio = candle_body / candle_range if candle_range > 0 else 0.0
-    close_position = (
-        (last_close - last_low) / candle_range if candle_range > 0 else 0.5
-    )
-
-    bullish_candle_confirmation = (
-        last_close > last_open and body_ratio >= 0.40
-        and close_position >= 0.60
-    )
-    bearish_candle_confirmation = (
-        last_close < last_open and body_ratio >= 0.40
-        and close_position <= 0.40
-    )
-    bullish_rejection = (
-        lower_wick >= candle_body * 0.75
-        and close_position >= 0.55
-        and last_close >= last_open
-    )
-    bearish_rejection = (
-        upper_wick >= candle_body * 0.75
-        and close_position <= 0.45
-        and last_close <= last_open
-    )
-    bull_candle_ok = bullish_candle_confirmation or bullish_rejection
-    bear_candle_ok = bearish_candle_confirmation or bearish_rejection
-
-    # Controlled early-entry path for confirmed breakout/retest.
-    bull_structure_path = (
-        bull_structure and price > ema20 and ema20_up and di_bull
-        and (adx >= 20 or vol_strong) and not late_buy
-    )
-    bear_structure_path = (
-        bear_structure and price < ema20 and ema20_down and di_bear
-        and (adx >= 20 or vol_strong) and not late_sell
-    )
-
-    # Main directional scores (components total 100 before penalties).
-    buy = 0
-    buy += 12 if price > ema20 else 0
-    buy += 12 if ema20 > ema50 else 0
-    buy += 8 if ema20_up else 0
-    buy += 4 if ema50_up else 0
-    buy += 14 if bull_rsi_ok else 0
-    buy += 8 if bull_momentum else 0
-    buy += (
-        14 if adx >= 25 and di_bull
-        else 7 if adx >= 20 and di_bull
-        else 0
-    )
-    buy += 8 if vol_strong else 0
-    buy += 6 if bull_structure else 0
-    buy += 6 if enough_buy else 0
-    buy += 4 if di_bull else 0
-    buy += 4 if bull_candle_ok else 0
-    buy += 4 if bull_pattern_confirmed else 0
-    buy -= 15 if late_buy else 0
-    buy -= 5 if vol_weak else 0
-    buy = max(0, min(buy, 100))
-
-    sell = 0
-    sell += 12 if price < ema20 else 0
-    sell += 12 if ema20 < ema50 else 0
-    sell += 8 if ema20_down else 0
-    sell += 4 if ema50_down else 0
-    sell += 14 if bear_rsi_ok else 0
-    sell += 8 if bear_momentum else 0
-    sell += (
-        14 if adx >= 25 and di_bear
-        else 7 if adx >= 20 and di_bear
-        else 0
-    )
-    sell += 8 if vol_strong else 0
-    sell += 6 if bear_structure else 0
-    sell += 6 if enough_sell else 0
-    sell += 4 if di_bear else 0
-    sell += 4 if bear_candle_ok else 0
-    sell += 4 if bear_pattern_confirmed else 0
-    sell -= 15 if late_sell else 0
-    sell -= 5 if vol_weak else 0
-    sell = max(0, min(sell, 100))
-
-    # Moderately relaxed trend confirmation.
-    bull_early_path = (
-        price > ema20
-        and ema20_up
-        and not late_buy
-        and (di_bull or bull_structure)
-        and (adx >= 20 or vol_ratio >= 0.80 or bull_structure)
-    )
-    bear_early_path = (
-        price < ema20
-        and ema20_down
-        and not late_sell
-        and (di_bear or bear_structure)
-        and (adx >= 20 or vol_ratio >= 0.80 or bear_structure)
-    )
-
-    # Higher-timeframe alignment is supporting evidence.
-    htf_buy_support = trend_1h == "BULLISH" or trend_4h == "BULLISH"
-    htf_sell_support = trend_1h == "BEARISH" or trend_4h == "BEARISH"
-
-    # Entry routes: trend continuation or structure breakout/retest.
-    buy_trend_path = (
-        bull_ema
-        and di_bull
-        and (bull_momentum or bull_candle_ok)
-        and (adx >= 20 or vol_ratio >= 0.90)
-    )
-    sell_trend_path = (
-        bear_ema
-        and di_bear
-        and (bear_momentum or bear_candle_ok)
-        and (adx >= 20 or vol_ratio >= 0.90)
-    )
-
-    buy_structure_path = (
-        bull_structure_path
-        and bull_momentum
-        and (bull_candle_ok or vol_ratio >= 1.0)
-    )
-    sell_structure_path = (
-        bear_structure_path
-        and bear_momentum
-        and (bear_candle_ok or vol_ratio >= 1.0)
-    )
-
-    # Early entry requires stronger supporting evidence.
-    early_buy_confirmed = (
-        bull_early_path
-        and bull_momentum
-        and di_bull
-        and vol_ratio >= 1.50
-        and adx >= 18
-        and bull_candle_ok
-        and 50 <= rsi <= 70
-        and enough_buy
-    )
-    early_sell_confirmed = (
-        bear_early_path
-        and bear_momentum
-        and di_bear
-        and vol_ratio >= 1.50
-        and adx >= 18
-        and bear_candle_ok
-        and 30 <= rsi <= 50
-        and enough_sell
-    )
-
-    # Confirmed pullback continuation in an established trend.
-    bull_pullback_continuation = (
-        bull_ema
-        and trend_1h == "BULLISH"
-        and trend_4h != "BEARISH"
-        and adx >= 25
-        and di_bull
-        and bull_rsi_ok
-        and not late_buy
-        and vol_ratio >= 0.80
-        and enough_buy
-        and bull_candle_ok
-        and closes[-2] <= opens[-2]
-        and closes[-1] > highs[-2]
-    )
-    bear_pullback_continuation = (
-        bear_ema
-        and trend_1h == "BEARISH"
-        and trend_4h != "BULLISH"
-        and adx >= 25
-        and di_bear
-        and bear_rsi_ok
-        and not late_sell
-        and vol_ratio >= 0.80
-        and enough_sell
-        and bear_candle_ok
-        and closes[-2] >= opens[-2]
-        and closes[-1] < lows[-2]
-    )
-
-    buy_confirm = (
-        (
-            buy_trend_path
-            or buy_structure_path
-            or early_buy_confirmed
-            or bull_pullback_continuation
-        )
-        and not late_buy
-        and not vol_weak
-        and enough_buy
-        and (
-            bull_rsi_ok
-            or (htf_buy_support and 48 <= rsi <= 72)
-        )
-        and (
-            trend_4h != "BEARISH"
-            or (bull_structure and adx >= 25 and vol_strong)
-        )
-    )
-
-    sell_confirm = (
-        (
-            sell_trend_path
-            or sell_structure_path
-            or early_sell_confirmed
-            or bear_pullback_continuation
-        )
-        and not late_sell
-        and not vol_weak
-        and enough_sell
-        and (
-            bear_rsi_ok
-            or (htf_sell_support and 28 <= rsi <= 52)
-        )
-        and (
-            trend_4h != "BULLISH"
-            or (bear_structure and adx >= 25 and vol_strong)
-        )
-    )
-
-    # ------------------------------------------------------------------
-    # STANDARD decision (unchanged from the original bot).
-    # ------------------------------------------------------------------
-    standard_buy = (
-        buy >= MIN_SIGNAL_SCORE and buy > sell and buy_confirm
-    )
-    standard_sell = (
-        sell >= MIN_SIGNAL_SCORE and sell > buy and sell_confirm
-    )
-
-    # ------------------------------------------------------------------
-    # RELAXED fallback: evaluated only if the standard rules gave no signal.
-    # Safety filters (late entry, weak volume, room, 4H trend, DI, momentum,
-    # candle confirmation) all stay on.
-    # ------------------------------------------------------------------
-    relaxed_buy = (
-        RELAXED_MODE
-        and not standard_buy and not standard_sell
-        and buy >= RELAXED_MIN_SCORE
-        and buy >= sell + RELAXED_SCORE_GAP
-        and price > ema20 and ema20_up
-        and di_bull and bull_momentum
-        and adx >= 18
-        and 45 <= rsi <= 72
-        and not late_buy and not vol_weak and enough_buy
-        and trend_4h != "BEARISH"
-        and (bull_candle_ok or bull_pattern_confirmed)
-    )
-    relaxed_sell = (
-        RELAXED_MODE
-        and not standard_buy and not standard_sell
-        and not relaxed_buy
-        and sell >= RELAXED_MIN_SCORE
-        and sell >= buy + RELAXED_SCORE_GAP
-        and price < ema20 and ema20_down
-        and di_bear and bear_momentum
-        and adx >= 18
-        and 28 <= rsi <= 55
-        and not late_sell and not vol_weak and enough_sell
-        and trend_4h != "BULLISH"
-        and (bear_candle_ok or bear_pattern_confirmed)
-    )
-
-    if standard_buy or relaxed_buy:
-        signal, kind, score = SIG_BUY, "BUY", buy
-    elif standard_sell or relaxed_sell:
-        signal, kind, score = SIG_SELL, "SELL", sell
+    obstacle = nearest_pivot(h, l, i, s, price)
+    pdh, pdl = prev_day_levels(d, i)
+    if s == 1 and pdh is not None and pdh > price:
+        obstacle = pdh if obstacle is None else min(obstacle, pdh)
+    if s == -1 and pdl is not None and pdl < price:
+        obstacle = pdl if obstacle is None else max(obstacle, pdl)
+    if obstacle is None or risk <= 0:
+        room = math.inf
     else:
-        signal, kind, score = SIG_WAIT, "WAIT", min(max(buy, sell), 84)
+        room = (s * (obstacle - price) - 0.1 * atr) / risk
 
-    # Experimental paper signal, separate from live confirmation.
-    paper_signal = "NONE"
-
-    if (
-        buy >= PAPER_SIGNAL_SCORE
-        and buy > sell
-        and price > ema20
-        and di_bull
-        and not vol_weak
-        and not late_buy
-        and enough_buy
-        and bull_momentum
-    ):
-        paper_signal = "PAPER BUY"
-    elif (
-        sell >= PAPER_SIGNAL_SCORE
-        and sell > buy
-        and price < ema20
-        and di_bear
-        and not vol_weak
-        and not late_sell
-        and enough_sell
-        and bear_momentum
-    ):
-        paper_signal = "PAPER SELL"
-
-    # Entry quality score: supplementary setup rating, not a win probability.
-    buy_quality = 0
-    sell_quality = 0
-
-    buy_quality += (
-        30 if bull_ema
-        else 20 if (bull_structure_path or bull_early_path)
-        else 0
+    # ---- score (max 100) -------------------------------------------------
+    want = "BULLISH" if s == 1 else "BEARISH"
+    opp = "BEARISH" if s == 1 else "BULLISH"
+    score = 0
+    score += 10 if trend15 else 0
+    score += 5 if ema50_slope else 0
+    score += 12 if t1h == want else (-8 if t1h == opp else 0)
+    score += 8 if t4h == want else (-12 if t4h == opp else 0)
+    score += 10 if adx >= 25 else 7 if adx >= 20 else 3 if adx >= 15 else 0
+    score += 5 if di_ok else 0
+    score += (
+        10 if vr >= 1.5 else 7 if vr >= 1.0 else 4 if vr >= 0.7
+        else 1 if vr >= 0.5 else -5
     )
-    sell_quality += (
-        30 if bear_ema
-        else 20 if (bear_structure_path or bear_early_path)
-        else 0
-    )
+    r_eff = rsi if s == 1 else 100.0 - rsi
+    score += 8 if 45 <= r_eff <= 62 else 4 if 40 <= r_eff <= 70 else 0
+    score -= 5 if r_eff > 75 else 0
+    score += 7 if strong else (5 if reject else 0)
+    score += 10 if setup else 0
+    score += 10 if room >= 2.0 else 7 if room >= 1.5 else 3 if room >= 1.0 else 0
+    score += 5 if dist <= 1.0 else 0
+    score = max(0, min(100, int(round(score))))
 
-    buy_quality += 15 if adx >= 20 and di_bull else 0
-    sell_quality += 15 if adx >= 20 and di_bear else 0
-    buy_quality += 15 if bull_rsi_ok else 0
-    sell_quality += 15 if bear_rsi_ok else 0
-    buy_quality += 15 if bull_structure else 0
-    sell_quality += 15 if bear_structure else 0
-    buy_quality += 10 if (bull_candle_ok or bull_pattern_confirmed) else 0
-    sell_quality += 10 if (bear_candle_ok or bear_pattern_confirmed) else 0
-
-    volume_points = 15 if vol_strong else (8 if vol_ratio >= WEAK_VOLUME_RATIO else 0)
-    buy_quality += volume_points
-    sell_quality += volume_points
-    buy_quality -= 10 if late_buy else 0
-    sell_quality -= 10 if late_sell else 0
-    buy_quality -= 10 if not enough_buy else 0
-    sell_quality -= 10 if not enough_sell else 0
-    buy_quality = max(0, min(100, buy_quality))
-    sell_quality = max(0, min(100, sell_quality))
-
-    # Final quality guard: keep weak-volume and low-quality protection,
-    # but let a strong setup qualify without a perfect signal candle.
-    if kind == "BUY" and (
-        buy_quality < MIN_QUALITY_SCORE
-        or vol_weak
-        or (
-            not (bull_candle_ok or bull_pattern_confirmed)
-            and buy_quality < 65
-        )
-    ):
-        kind, signal, score = "WAIT", SIG_WAIT, min(max(buy, sell), 84)
-
-    elif kind == "SELL" and (
-        sell_quality < MIN_QUALITY_SCORE
-        or vol_weak
-        or (
-            not (bear_candle_ok or bear_pattern_confirmed)
-            and sell_quality < 65
-        )
-    ):
-        kind, signal, score = "WAIT", SIG_WAIT, min(max(buy, sell), 84)
-
-    breakout_watch_status = "NONE"
-
-    if kind == "WAIT":
-        if buy_breakout_watch:
-            breakout_watch_status = "BUY BREAKOUT WATCH"
-        elif sell_breakdown_watch:
-            breakout_watch_status = "SELL BREAKDOWN WATCH"
-
-    if kind == "BUY":
-        entry_quality_score = buy_quality
-    elif kind == "SELL":
-        entry_quality_score = sell_quality
-    else:
-        entry_quality_score = max(buy_quality, sell_quality)
-
-    entry_quality = quality_grade(entry_quality_score)
-
-    if kind == "BUY":
-        if bull_break and bull_retest:
-            entry_setup = "Breakout + Retest"
-        elif bull_retest:
-            entry_setup = "Breakout Retest"
-        elif bull_break:
-            entry_setup = "Breakout"
-        elif bull_structure:
-            entry_setup = "Bullish Structure"
-        else:
-            entry_setup = "Trend Continuation"
-
-        candle_status = (
-            "Strong Bullish Candle"
-            if bullish_candle_confirmation
-            else "Bullish Rejection"
-            if bullish_rejection
-            else "Not Confirmed"
-        )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
-
-    elif kind == "SELL":
-        if bear_break and bear_retest:
-            entry_setup = "Breakdown + Retest"
-        elif bear_retest:
-            entry_setup = "Breakdown Retest"
-        elif bear_break:
-            entry_setup = "Breakdown"
-        elif bear_structure:
-            entry_setup = "Bearish Structure"
-        else:
-            entry_setup = "Trend Continuation"
-
-        candle_status = (
-            "Strong Bearish Candle"
-            if bearish_candle_confirmation
-            else "Bearish Rejection"
-            if bearish_rejection
-            else "Not Confirmed"
-        )
-        entry_timing = "Ideal" if dist_ema <= 1.0 else "Acceptable"
-
-    else:
-        entry_setup = "No Confirmed Setup"
-        candle_status = (
-            "Partial Confirmation"
-            if bull_candle_ok or bear_candle_ok
-            else "Not Confirmed"
-        )
-        entry_timing = "Not Applicable"
-
-    # Tag signals that came from the relaxed fallback.
-    if kind in ("BUY", "SELL") and (relaxed_buy or relaxed_sell):
-        entry_setup += " (Relaxed)"
-
-    if kind == "BUY":
-        reasons = ["Bullish EMA alignment", "RSI confirmation"]
-        if di_bull:
-            reasons.append("+DI stronger")
-        if strong_trend:
-            reasons.append("ADX trend strength")
-        if vol_strong:
-            reasons.append("Volume confirmation")
-        if bull_structure:
-            reasons.append("Breakout/retest structure")
-        if vol_weak:
-            reasons.append("Low volume risk")
-    elif kind == "SELL":
-        reasons = ["Bearish EMA alignment", "RSI confirmation"]
-        if di_bear:
-            reasons.append("-DI stronger")
-        if strong_trend:
-            reasons.append("ADX trend strength")
-        if vol_strong:
-            reasons.append("Volume confirmation")
-        if bear_structure:
-            reasons.append("Breakdown/retest structure")
-        if vol_weak:
-            reasons.append("Low volume risk")
-    else:
-        reasons = []
-        if not strong_trend:
-            reasons.append("ADX below 25 strong-trend threshold")
-        if vol_weak:
-            reasons.append("Very low volume")
-        elif not vol_strong:
-            reasons.append("Volume not elevated")
-        if buy >= sell:
-            if not bull_ema and not bull_structure_path:
-                reasons.append("Bullish trend alignment incomplete")
-            if not bull_rsi_ok:
-                reasons.append("Bullish RSI confirmation missing")
-            if not enough_buy:
-                reasons.append("Limited upside room before resistance")
-            if not bull_candle_ok:
-                reasons.append("Bullish candle confirmation missing")
-            if late_buy:
-                reasons.append("BUY entry too far from EMA20")
-        else:
-            if not bear_ema and not bear_structure_path:
-                reasons.append("Bearish trend alignment incomplete")
-            if not bear_rsi_ok:
-                reasons.append("Bearish RSI confirmation missing")
-            if not enough_sell:
-                reasons.append("Limited downside room before support")
-            if not bear_candle_ok:
-                reasons.append("Bearish candle confirmation missing")
-            if late_sell:
-                reasons.append("SELL entry too far from EMA20")
-        if not reasons:
-            reasons.append("Full confirmation not available")
-
-    if bull_ema and adx >= 25 and di_bull:
-        trend = "Strong Bullish"
-    elif bear_ema and adx >= 25 and di_bear:
-        trend = "Strong Bearish"
-    elif price > ema20 and ema20 > ema50:
-        trend = "Bullish"
-    elif price < ema20 and ema20 < ema50:
-        trend = "Bearish"
-    else:
-        trend = "Neutral"
-
-    print(
-        f"DEBUG {symbol} | "
-        f"BUY={buy} SELL={sell} | "
-        f"RSI={rsi:.1f} ADX={adx:.1f} "
-        f"VOL={vol_ratio:.2f} | "
-        f"BUY_CONFIRM={buy_confirm} "
-        f"SELL_CONFIRM={sell_confirm} | "
-        f"RELAXED_BUY={relaxed_buy} "
-        f"RELAXED_SELL={relaxed_sell} | "
-        f"ROOM_BUY={enough_buy} "
-        f"ROOM_SELL={enough_sell} | "
-        f"BUY_ROOM_RR={buy_room_rr:.2f} "
-        f"SELL_ROOM_RR={sell_room_rr:.2f} | "
-        f"BUY_OBSTACLE={buy_obstacle} "
-        f"SELL_OBSTACLE={sell_obstacle} | "
-        f"BULL_EMA={bull_ema} "
-        f"BEAR_EMA={bear_ema} | "
-        f"BULL_STRUCTURE={bull_structure} "
-        f"BEAR_STRUCTURE={bear_structure} | "
-        f"BULL_EARLY={bull_early_path} "
-        f"BEAR_EARLY={bear_early_path} | "
-        f"BULL_RSI_OK={bull_rsi_ok} "
-        f"BEAR_RSI_OK={bear_rsi_ok} | "
-        f"BULL_CANDLE={bull_candle_ok} "
-        f"BEAR_CANDLE={bear_candle_ok} | "
-        f"BUY_QUALITY={buy_quality} "
-        f"SELL_QUALITY={sell_quality} | "
-        f"WEAK_VOL={vol_weak}"
-    )
-
-    print(
-        f"DECISION {symbol} | "
-        f"FINAL={kind} | "
-        f"BUY_TREND={buy_trend_path} "
-        f"SELL_TREND={sell_trend_path} | "
-        f"BUY_STRUCTURE={buy_structure_path} "
-        f"SELL_STRUCTURE={sell_structure_path} | "
-        f"HTF_BUY={htf_buy_support} "
-        f"HTF_SELL={htf_sell_support} | "
-        f"BUY_QUALITY={buy_quality} "
-        f"SELL_QUALITY={sell_quality}"
-    )
-
-    print(
-        f"ENTRY_PATH_DETAIL {symbol} | "
-        f"BUY_TREND={buy_trend_path} "
-        f"BUY_STRUCTURE={buy_structure_path} "
-        f"BUY_EARLY={early_buy_confirmed} "
-        f"BUY_PULLBACK={bull_pullback_continuation} | "
-        f"SELL_TREND={sell_trend_path} "
-        f"SELL_STRUCTURE={sell_structure_path} "
-        f"SELL_EARLY={early_sell_confirmed} "
-        f"SELL_PULLBACK={bear_pullback_continuation} | "
-        f"BUY_ROOM={enough_buy} "
-        f"SELL_ROOM={enough_sell} | "
-        f"WEAK_VOLUME={vol_weak}"
-    )
-
-    blocked_reasons = []
-
-    if kind == "WAIT":
-        if buy >= MIN_SIGNAL_SCORE and buy > sell:
-            if not enough_buy:
-                blocked_reasons.append("BUY_ROOM")
-            if late_buy:
-                blocked_reasons.append("LATE_BUY")
-            if vol_weak:
-                blocked_reasons.append("WEAK_VOLUME")
-            if not (
-                buy_trend_path
-                or buy_structure_path
-                or early_buy_confirmed
-                or bull_pullback_continuation
-            ):
-                blocked_reasons.append("BUY_ENTRY_PATH")
-            if trend_4h == "BEARISH":
-                blocked_reasons.append("4H_OPPOSING_BUY")
-            if buy_quality < MIN_QUALITY_SCORE:
-                blocked_reasons.append("LOW_BUY_QUALITY")
-            if not (
-                bull_rsi_ok
-                or (htf_buy_support and 48 <= rsi <= 72)
-            ):
-                blocked_reasons.append("BUY_RSI")
-            if (
-                not (bull_candle_ok or bull_pattern_confirmed)
-                and buy_quality < 60
-            ):
-                blocked_reasons.append("BUY_CANDLE_QUALITY")
-
-        elif sell >= MIN_SIGNAL_SCORE and sell > buy:
-            if not enough_sell:
-                blocked_reasons.append("SELL_ROOM")
-            if late_sell:
-                blocked_reasons.append("LATE_SELL")
-            if vol_weak:
-                blocked_reasons.append("WEAK_VOLUME")
-            if not (
-                sell_trend_path
-                or sell_structure_path
-                or early_sell_confirmed
-                or bear_pullback_continuation
-            ):
-                blocked_reasons.append("SELL_ENTRY_PATH")
-            if trend_4h == "BULLISH":
-                blocked_reasons.append("4H_OPPOSING_SELL")
-            if sell_quality < MIN_QUALITY_SCORE:
-                blocked_reasons.append("LOW_SELL_QUALITY")
-            if not (
-                bear_rsi_ok
-                or (htf_sell_support and 28 <= rsi <= 52)
-            ):
-                blocked_reasons.append("SELL_RSI")
-            if (
-                not (bear_candle_ok or bear_pattern_confirmed)
-                and sell_quality < 60
-            ):
-                blocked_reasons.append("SELL_CANDLE_QUALITY")
-
-    print(
-        f"BLOCKED {symbol} | "
-        f"REASONS={','.join(blocked_reasons) if blocked_reasons else 'NONE'} | "
-        f"BUY_WATCH={buy_breakout_watch} | "
-        f"SELL_WATCH={sell_breakdown_watch}"
-    )
-
-    print(
-        f"FILTER_DETAIL {symbol} | "
-        f"PRICE={price:.8g} | "
-        f"EMA20_UP={ema20_up} "
-        f"EMA20_DOWN={ema20_down} | "
-        f"DI_BULL={di_bull} "
-        f"DI_BEAR={di_bear} | "
-        f"BULL_MOMENTUM={bull_momentum} "
-        f"BEAR_MOMENTUM={bear_momentum} | "
-        f"LATE_BUY={late_buy} "
-        f"LATE_SELL={late_sell} | "
-        f"BULL_STRUCTURE_PATH={bull_structure_path} "
-        f"BEAR_STRUCTURE_PATH={bear_structure_path} | "
-        f"1H={trend_1h} "
-        f"4H={trend_4h} | "
-        f"VOL_RATIO={vol_ratio:.2f}"
-    )
-
-    # Independent trade eligibility assessment.
-    # Does not change the BUY/SELL/WAIT signal.
-    trade_advice = "NO TRADE"
-    trade_advice_reason = "No confirmed BUY/SELL signal"
-
-    if kind in ("BUY", "SELL"):
-
-        is_buy = kind == "BUY"
-
-        direction_quality = buy_quality if is_buy else sell_quality
-        direction_room = buy_room_rr if is_buy else sell_room_rr
-        direction_candle = bull_candle_ok if is_buy else bear_candle_ok
-        direction_structure = bull_structure if is_buy else bear_structure
-        direction_di = di_bull if is_buy else di_bear
-        direction_htf = "BULLISH" if is_buy else "BEARISH"
-        opposite_htf = "BEARISH" if is_buy else "BULLISH"
-
-        # Do not approve trades against a clear 4H trend.
-        htf_safe = (
-            trend_4h != opposite_htf
-            and trend_4h != "UNKNOWN"
-        )
-
-        # Prefer 1H alignment, but allow strong structure.
-        htf_confirmed = (
-            trend_1h == direction_htf
-            or (
-                direction_structure
-                and adx >= 25
-                and vol_ratio >= 1.0
-            )
-        )
-
-        checks = {
-            "Higher timeframe": htf_safe and htf_confirmed,
-            "Signal strength": score >= 60,
-            "Setup quality": direction_quality >= 55,
-            "Trend momentum": adx >= 20 and direction_di,
-            "Volume": vol_ratio >= 0.80,
-            "Candle confirmation": direction_candle,
-            "Target room": direction_room >= 1.2,
-            "Entry distance": not (late_buy if is_buy else late_sell),
-        }
-
-        failed_checks = [
-            name for name, passed in checks.items() if not passed
-        ]
-
-        if not failed_checks:
-            trade_advice = "ELIGIBLE"
-            trade_advice_reason = "All preliminary trade checks passed"
-        else:
-            trade_advice = "AVOID"
-            trade_advice_reason = "Missing: " + ", ".join(failed_checks)
+    # ---- hard gates ------------------------------------------------------
+    reasons = []
+    if setup is None:
+        reasons.append("No setup (no pullback/breakout/retest)")
+    if vr < cfg["HARD_MIN_VOL"]:
+        reasons.append(f"Low volume ({vr:.2f}x)")
+    if adx < cfg["MIN_ADX"]:
+        reasons.append(f"Ranging market (ADX {adx:.0f})")
+    if t1h == opp and t4h == opp:
+        reasons.append("1H and 4H both against")
+    if dist > cfg["MAX_DIST_ATR"]:
+        reasons.append("Entry too extended from EMA20")
+    if risk > cfg["MAX_RISK_ATR"] * atr:
+        reasons.append("Stop too wide")
+    if room < cfg["MIN_ROOM_R"]:
+        reasons.append(f"Little room ({room:.1f}R)")
+    if score < cfg["MIN_SCORE"]:
+        reasons.append(f"Score {score} < {cfg['MIN_SCORE']}")
 
     return {
-        "price": price,
-        "ema20": ema20,
-        "ema50": ema50,
-        "trend_1h": trend_1h,
-        "trend_4h": trend_4h,
-        "rsi": rsi,
-        "adx": adx,
-        "plus_di": pdi,
-        "minus_di": mdi,
-        "atr": atr,
-        "trend": trend,
-        "signal": signal,
-        "paper_signal": paper_signal,
-        "trade_advice": trade_advice,
-        "trade_advice_reason": trade_advice_reason,
-        "signal_type": kind,
-        "signal_score": score,
-        "buy_score": buy,
-        "sell_score": sell,
-        "volume_ratio": vol_ratio,
-        "entry_quality": entry_quality,
-        "entry_quality_score": entry_quality_score,
-        "entry_setup": entry_setup,
-        "candle_status": candle_status,
-        "entry_timing": entry_timing,
-        "support": support,
-        "resistance": resistance,
-        "buy_obstacle": buy_obstacle,
-        "sell_obstacle": sell_obstacle,
-        "nearest_support": ns,
-        "nearest_resistance": nr,
-        "reason": " + ".join(reasons),
-        "breakout_watch": breakout_watch_status,
+        "side": side, "ok": not reasons, "score": score,
+        "grade": grade_of(score, cfg), "setup": setup, "reasons": reasons,
+        "price": price, "atr": atr, "sl": sl, "tp1": tp1, "tp2": tp2,
+        "risk": risk, "room": room, "vr": vr, "adx": adx, "rsi": rsi,
+        "dist": dist, "trend_1h": t1h, "trend_4h": t4h, "ts": d["ts"][i],
     }
 
 
-def calculate_trade_levels(price, atr, signal, support, resistance, ns, nr):
-    """
-    Calculate structure-aware SL, TP1 and TP2.
-    Print diagnostic reasons when validation fails.
-    """
-
-    if atr <= 0 or price <= 0:
-        print(
-            f"SLTP_BLOCK | REASON=INVALID_INPUT | "
-            f"PRICE={price} ATR={atr}"
-        )
-        return None, None, None
-
-    if signal not in (SIG_BUY, SIG_SELL):
-        return None, None, None
-
-    buffer = atr * STRUCTURE_BUFFER_ATR
-    atr_stop = atr * STOP_ATR_MULTIPLIER
-    max_risk = atr * 2.5
-
-    if signal == SIG_BUY:
-
-        supports = [
-            level for level in (support, ns)
-            if level is not None and 0 < level < price
-        ]
-
-        if supports:
-            structural_sl = max(supports) - buffer
-            sl = min(price - atr_stop, structural_sl)
-        else:
-            sl = price - atr_stop
-
-        risk = price - sl
-
-        if risk <= 0 or risk > max_risk or sl <= 0:
-            print(
-                f"SLTP_BLOCK BUY | REASON=INVALID_STOP | "
-                f"PRICE={price:.8g} ATR={atr:.8g} "
-                f"SL={sl:.8g} RISK={risk:.8g} "
-                f"MAX_RISK={max_risk:.8g}"
-            )
-            return None, None, None
-
-        obstacle = nr if nr is not None and nr > price else None
-
-        if obstacle is not None:
-            available_room = obstacle - buffer - price
-
-            if available_room < risk * 1.5:
-                print(
-                    f"SLTP_BLOCK BUY | REASON=INSUFFICIENT_ROOM | "
-                    f"PRICE={price:.8g} ATR={atr:.8g} "
-                    f"SL={sl:.8g} RISK={risk:.8g} "
-                    f"OBSTACLE={obstacle:.8g} "
-                    f"AVAILABLE_ROOM={available_room:.8g} "
-                    f"REQUIRED_ROOM={risk * 1.5:.8g}"
-                )
-                return None, None, None
-
-        tp1 = price + risk * TP1_RR
-        tp2 = price + risk * TP2_RR
-
-        if obstacle is not None:
-            tp1 = min(tp1, obstacle - buffer)
-
-        if tp1 <= price or tp2 <= tp1:
-            print(
-                f"SLTP_BLOCK BUY | REASON=INVALID_TARGETS | "
-                f"PRICE={price:.8g} SL={sl:.8g} "
-                f"TP1={tp1:.8g} TP2={tp2:.8g}"
-            )
-            return None, None, None
-
-        return sl, tp1, tp2
-
-    if signal == SIG_SELL:
-
-        resistances = [
-            level for level in (resistance, nr)
-            if level is not None and level > price
-        ]
-
-        if resistances:
-            structural_sl = min(resistances) + buffer
-            sl = max(price + atr_stop, structural_sl)
-        else:
-            sl = price + atr_stop
-
-        risk = sl - price
-
-        if risk <= 0 or risk > max_risk:
-            print(
-                f"SLTP_BLOCK SELL | REASON=INVALID_STOP | "
-                f"PRICE={price:.8g} ATR={atr:.8g} "
-                f"SL={sl:.8g} RISK={risk:.8g} "
-                f"MAX_RISK={max_risk:.8g}"
-            )
-            return None, None, None
-
-        obstacle = ns if ns is not None and ns < price else None
-
-        if obstacle is not None:
-            available_room = price - (obstacle + buffer)
-
-            if available_room < risk * 1.5:
-                print(
-                    f"SLTP_BLOCK SELL | REASON=INSUFFICIENT_ROOM | "
-                    f"PRICE={price:.8g} ATR={atr:.8g} "
-                    f"SL={sl:.8g} RISK={risk:.8g} "
-                    f"OBSTACLE={obstacle:.8g} "
-                    f"AVAILABLE_ROOM={available_room:.8g} "
-                    f"REQUIRED_ROOM={risk * 1.5:.8g}"
-                )
-                return None, None, None
-
-        tp1 = price - risk * TP1_RR
-        tp2 = price - risk * TP2_RR
-
-        if obstacle is not None:
-            tp1 = max(tp1, obstacle + buffer)
-
-        if tp1 >= price or tp2 >= tp1 or tp2 <= 0:
-            print(
-                f"SLTP_BLOCK SELL | REASON=INVALID_TARGETS | "
-                f"PRICE={price:.8g} SL={sl:.8g} "
-                f"TP1={tp1:.8g} TP2={tp2:.8g}"
-            )
-            return None, None, None
-
-        return sl, tp1, tp2
-
-    return None, None, None
+def evaluate(d, i, t1h, t4h, cfg=None):
+    cfg = cfg or CFG
+    if i < 60 or d["atr"][i] <= 0:
+        return None
+    results = [evaluate_side(d, i, s, t1h, t4h, cfg) for s in (1, -1)]
+    passing = [r for r in results if r["ok"]]
+    pool = passing or results
+    best = max(pool, key=lambda r: r["score"])
+    best = dict(best)
+    best["signal"] = best["side"] if best["ok"] else "WAIT"
+    return best
 
 
-def estimate_duration(price, tp2, atr):
-    if atr <= 0 or tp2 is None:
-        return "N/A"
-    # A rough ATR-based estimate, not a guaranteed target time.
-    minutes = max(15, abs(tp2 - price) / atr * 15 * 1.5)
-    if minutes < 60:
-        return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {math.ceil(minutes)} \u0645\u0646\u0679"
-    hours = minutes / 60
-    if hours < 24:
-        return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {hours:.1f} \u06af\u06be\u0646\u0679\u06d2"
-    return f"\u062a\u0642\u0631\u06cc\u0628\u0627\u064b {hours / 24:.1f} \u062f\u0646"
+# ===========================================================================
+# Bitget API
+# ===========================================================================
+def _get(path, params):
+    resp = requests.get(
+        f"{BITGET_URL}{path}", params=params,
+        headers={"Accept": "application/json"}, timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict) or payload.get("code") != "00000":
+        raise ValueError(f"Bitget error: {payload}")
+    rows = payload.get("data")
+    if not isinstance(rows, list):
+        raise ValueError("Unexpected Bitget response")
+    return rows
+
+
+def fetch_candles(symbol, granularity, limit=200):
+    rows = _get("/api/v2/mix/market/candles", {
+        "symbol": symbol, "productType": "USDT-FUTURES",
+        "granularity": granularity, "limit": str(limit),
+    })
+    rows = [r for r in rows if isinstance(r, (list, tuple)) and len(r) >= 6]
+    rows.sort(key=lambda r: int(r[0]))
+    return rows
+
+
+def fetch_history(symbol, days):
+    """Page backwards through 15m history (for the backtest)."""
+    end_ms = int(time.time() * 1000)
+    start_ms = end_ms - days * DAY_MS
+    collected = {}
+    for path in ("/api/v2/mix/market/history-candles",
+                 "/api/v2/mix/market/candles"):
+        collected.clear()
+        cursor = end_ms
+        try:
+            for _ in range(400):
+                rows = _get(path, {
+                    "symbol": symbol, "productType": "USDT-FUTURES",
+                    "granularity": "15m", "limit": "200",
+                    "endTime": str(cursor),
+                })
+                rows = [r for r in rows
+                        if isinstance(r, (list, tuple)) and len(r) >= 6]
+                if not rows:
+                    break
+                for r in rows:
+                    collected[int(r[0])] = r
+                oldest = min(int(r[0]) for r in rows)
+                if oldest <= start_ms or oldest >= cursor:
+                    break
+                cursor = oldest - 1
+                time.sleep(0.12)
+        except (requests.RequestException, ValueError) as exc:
+            print(f"  {symbol}: {path} failed ({exc})")
+        if len(collected) >= 500:
+            break
+    out = [collected[k] for k in sorted(collected) if k >= start_ms]
+    now_ms = int(time.time() * 1000)
+    return [r for r in out if int(r[0]) + BASE_MS <= now_ms]
+
+
+# ===========================================================================
+# Live scan
+# ===========================================================================
+def fmt(x):
+    return f"{x:.8g}"
+
+
+def scan_symbol(symbol):
+    now_ms = int(time.time() * 1000)
+    rows = fetch_candles(symbol, "15m", 200)
+    rows = [r for r in rows if int(r[0]) + BASE_MS <= now_ms]
+    if len(rows) < 100:
+        raise ValueError("not enough closed candles")
+    d = build_data(rows)
+    h1 = build_htf(fetch_candles(symbol, "1H", 100), HOUR_MS)
+    h4 = build_htf(fetch_candles(symbol, "4H", 100), 4 * HOUR_MS)
+    res = evaluate(d, len(rows) - 1,
+                   htf_trend_at(h1, now_ms), htf_trend_at(h4, now_ms))
+    if res is None:
+        raise ValueError("not enough data to evaluate")
+    return res
+
+
+def format_signal(symbol, r):
+    icon = BUY_ICON if r["signal"] == "BUY" else SELL_ICON
+    risk_pct = r["risk"] / r["price"] * 100
+    room = "none ahead" if math.isinf(r["room"]) else f"{r['room']:.1f}R"
+    when = time.strftime("%H:%M", time.gmtime((r["ts"] + BASE_MS) / 1000))
+    return (
+        f"{icon} **{symbol} {r['signal']}** | Grade {r['grade']} "
+        f"(score {r['score']}/100)\n"
+        f"Setup: {r['setup']}\n"
+        f"Entry: {fmt(r['price'])}\n"
+        f"\U0001F6D1 SL: {fmt(r['sl'])} ({risk_pct:.2f}% risk)\n"
+        f"\U0001F3AF TP1: {fmt(r['tp1'])} ({CFG['TP1_R']}R) | "
+        f"TP2: {fmt(r['tp2'])} ({CFG['TP2_R']}R)\n"
+        f"Room to next obstacle: {room}\n"
+        f"1H {r['trend_1h']} | 4H {r['trend_4h']} | ADX {r['adx']:.0f} | "
+        f"RSI {r['rsi']:.0f} | Vol {r['vr']:.2f}x\n"
+        f"Candle closed: {when} UTC"
+    )
 
 
 def send_discord(message):
     if not WEBHOOK_URL:
         print("DISCORD_WEBHOOK_URL is not configured.")
         return
-
-    max_length = 1900
-    parts, current = [], ""
-
+    max_len, parts, current = 1900, [], ""
     for section in message.split("\n\n"):
         section = section.strip()
         if not section:
             continue
-        candidate = current + "\n\n" + section if current else section
-        if len(candidate) <= max_length:
-            current = candidate
+        cand = current + "\n\n" + section if current else section
+        if len(cand) <= max_len:
+            current = cand
         else:
             if current:
                 parts.append(current)
-            while len(section) > max_length:
-                parts.append(section[:max_length])
-                section = section[max_length:]
+            while len(section) > max_len:
+                parts.append(section[:max_len])
+                section = section[max_len:]
             current = section
-
     if current:
         parts.append(current)
-
     for i, part in enumerate(parts, 1):
-        response = requests.post(
-            WEBHOOK_URL,
-            json={"content": part},
-            timeout=TIMEOUT,
-        )
-        print(f"Discord response {i}/{len(parts)}: {response.status_code}")
-        response.raise_for_status()
-
-    print("Discord message sent successfully.")
+        resp = requests.post(WEBHOOK_URL, json={"content": part},
+                             timeout=TIMEOUT)
+        print(f"Discord {i}/{len(parts)}: {resp.status_code}")
+        resp.raise_for_status()
 
 
-def main():
-    print("Crypto Signal Bot V4 - Bitget USDT Perpetual data")
-    messages = []
-
-    for symbol in COINS:
+def run_live(coins, send=True):
+    print("Crypto Signal Bot V5 - live scan")
+    signals, near, waits = [], [], []
+    for symbol in coins:
         try:
-            print(f"Checking {symbol}...")
-            result = get_signal(symbol)
+            r = scan_symbol(symbol)
+        except Exception as exc:
+            print(f"{symbol} error: {exc}")
+            waits.append(f"{WAIT_ICON} {symbol}: error ({exc})")
+            continue
+        print(
+            f"{symbol}: {r['signal']} side={r['side']} score={r['score']} "
+            f"setup={r['setup']} vol={r['vr']:.2f} adx={r['adx']:.0f} "
+            f"1H={r['trend_1h']} 4H={r['trend_4h']} "
+            f"blocked={'; '.join(r['reasons']) or 'none'}"
+        )
+        if r["signal"] in ("BUY", "SELL"):
+            signals.append(format_signal(symbol, r))
+        elif (r["score"] >= CFG["MIN_SCORE"] - 10
+              and len(r["reasons"]) <= 2):
+            near.append(
+                f"{EYE_ICON} {symbol}: almost {r['side']} "
+                f"({r['score']}/{CFG['MIN_SCORE']}) - "
+                f"{'; '.join(r['reasons'])}"
+            )
+        else:
+            waits.append(
+                f"{WAIT_ICON} {symbol}: WAIT (best {r['side']} {r['score']}) - "
+                f"{r['reasons'][0] if r['reasons'] else 'n/a'}"
+            )
+    blocks = []
+    head = f"**Signal Bot V5** | {time.strftime('%Y-%m-%d %H:%M', time.gmtime())} UTC"
+    blocks.append(head + (f" | {len(signals)} signal(s)" if signals
+                          else " | no confirmed signals"))
+    blocks.extend(signals)
+    if near:
+        blocks.append("**Close to a signal (not tradable yet):**\n"
+                      + "\n".join(near))
+    if waits:
+        blocks.append("**Waiting:**\n" + "\n".join(waits))
+    message = "\n\n".join(blocks)
+    print("\n" + message)
+    if send:
+        send_discord(message)
 
-            if result is None:
-                print(f"{symbol}: not enough closed candles, skipped.")
+
+# ===========================================================================
+# Backtester
+# ===========================================================================
+def simulate_trade(d, i, r, cfg):
+    """Enter at next candle open. 50% at TP1, rest to TP2, stop to breakeven.
+    If SL and TP are hit in the same candle, SL is assumed first."""
+    s = 1 if r["side"] == "BUY" else -1
+    n = len(d["c"])
+    if i + 1 >= n:
+        return None
+    entry = d["o"][i + 1]
+    sl, tp1, tp2 = r["sl"], r["tp1"], r["tp2"]
+    if s * (sl - entry) >= 0 or s * (tp1 - entry) <= 0:
+        return None
+    risk = abs(entry - sl)
+    if risk > cfg["MAX_RISK_ATR"] * 1.3 * r["atr"]:
+        return None
+
+    stage, realized, reason, exit_j = 0, 0.0, "", i + 1
+    last = min(i + cfg["MAX_HOLD"], n - 1)
+    for j in range(i + 1, last + 1):
+        hi, lo, cl = d["h"][j], d["l"][j], d["c"][j]
+        adverse = lo if s == 1 else hi
+        favorable = hi if s == 1 else lo
+        exit_j = j
+        if stage == 0:
+            if s * (sl - adverse) >= 0:
+                realized += s * (sl - entry) / risk
+                reason = "SL"
+                break
+            if s * (favorable - tp1) >= 0:
+                realized += 0.5 * s * (tp1 - entry) / risk
+                stage = 1
+        else:
+            if s * (entry - adverse) >= 0:
+                reason = "BE"
+                break
+            if s * (favorable - tp2) >= 0:
+                realized += 0.5 * s * (tp2 - entry) / risk
+                reason = "TP2"
+                break
+        if j == last:
+            part = 1.0 if stage == 0 else 0.5
+            realized += part * s * (cl - entry) / risk
+            reason = "TIME"
+    cost_r = 2 * (cfg["FEE_PCT"] + cfg["SLIPPAGE_PCT"]) / 100.0 * entry / risk
+    return {
+        "side": r["side"], "setup": r["setup"], "grade": r["grade"],
+        "score": r["score"], "entry_ts": d["ts"][i + 1], "entry": entry,
+        "sl": sl, "tp1": tp1, "tp2": tp2, "exit_i": exit_j,
+        "exit_ts": d["ts"][exit_j], "reason": reason,
+        "gross_R": realized, "net_R": realized - cost_r,
+        "hold": exit_j - i,
+    }
+
+
+def backtest_rows(symbol, rows, cfg):
+    d = build_data(rows)
+    h1 = build_htf(resample(rows, HOUR_MS), HOUR_MS)
+    h4 = build_htf(resample(rows, 4 * HOUR_MS), 4 * HOUR_MS)
+    n = len(d["c"])
+    start = 60
+    while start < n and htf_trend_at(h4, d["ts"][start] + BASE_MS) == "UNKNOWN":
+        start += 1
+    trades, i = [], start
+    while i < n - 1:
+        t = d["ts"][i] + BASE_MS
+        res = evaluate(d, i, htf_trend_at(h1, t), htf_trend_at(h4, t), cfg)
+        if res and res["signal"] in ("BUY", "SELL"):
+            tr = simulate_trade(d, i, res, cfg)
+            if tr:
+                tr["symbol"] = symbol
+                trades.append(tr)
+                i = tr["exit_i"] + 2
                 continue
+        i += 1
+    span_days = max((d["ts"][-1] - d["ts"][start]) / DAY_MS, 1e-9)
+    return trades, span_days
 
-            price = result["price"]
-            atr = result["atr"]
-            signal = result["signal"]
 
-            sl, tp1, tp2 = calculate_trade_levels(
-                price, atr, signal,
-                result["support"], result["resistance"],
-                result["nearest_support"],
-                result["nearest_resistance"],
-            )
+def stats(trades):
+    if not trades:
+        return None
+    nets = [t["net_R"] for t in trades]
+    wins = [x for x in nets if x > 0]
+    losses = [x for x in nets if x <= 0]
+    pf = (sum(wins) / abs(sum(losses))) if losses and sum(losses) != 0 else float("inf")
+    cum = peak = dd = 0.0
+    for x in nets:
+        cum += x
+        peak = max(peak, cum)
+        dd = max(dd, peak - cum)
+    streak = cur = 0
+    for x in nets:
+        cur = cur + 1 if x <= 0 else 0
+        streak = max(streak, cur)
+    return {
+        "n": len(nets), "win": len(wins) / len(nets) * 100,
+        "avg": sum(nets) / len(nets), "total": sum(nets),
+        "gross": sum(t["gross_R"] for t in trades),
+        "pf": pf, "dd": dd, "streak": streak,
+    }
 
-            duration = estimate_duration(price, tp2, atr)
 
-            if signal in (SIG_BUY, SIG_SELL) and sl is None:
-                result["trade_advice"] = "AVOID"
-                result["trade_advice_reason"] = (
-                    "Structural SL/TP validation failed"
-                )
+def line(label, st):
+    if not st:
+        return f"{label:<22} no trades"
+    pf = "inf" if st["pf"] == float("inf") else f"{st['pf']:.2f}"
+    return (
+        f"{label:<22} trades={st['n']:<4} win={st['win']:5.1f}% "
+        f"avgR={st['avg']:+.2f} totalR={st['total']:+.1f} "
+        f"PF={pf:<5} maxDD={st['dd']:.1f}R"
+    )
 
-            if sl is not None:
-                levels = (
-                    f"\U0001f6d1 Stop Loss: {sl:.8g}\n"
-                    f"\U0001f3af TP1: {tp1:.8g}\n"
-                    f"\U0001f3af TP2: {tp2:.8g}\n"
-                )
-            else:
-                levels = (
-                    "\U0001f6d1 Stop Loss: N/A\n"
-                    "\U0001f3af TP1: N/A\n"
-                    "\U0001f3af TP2: N/A\n"
-                )
 
-            support_text = (
-                f"{result['nearest_support']:.8g}"
-                if result["nearest_support"] is not None else "N/A"
-            )
-            resistance_text = (
-                f"{result['nearest_resistance']:.8g}"
-                if result["nearest_resistance"] is not None else "N/A"
-            )
+def run_backtest(coins, days, fetch=None):
+    fetch = fetch or fetch_history
+    print(f"Backtest V5 | {days} days | min score {CFG['MIN_SCORE']} | "
+          f"cost/side {CFG['FEE_PCT'] + CFG['SLIPPAGE_PCT']:.2f}%")
+    all_trades, per_coin, total_days = [], {}, 0.0
+    for sym in coins:
+        rows = fetch(sym, days)
+        if len(rows) < 600:
+            print(f"{sym}: not enough history ({len(rows)} candles), skipped")
+            continue
+        trades, span = backtest_rows(sym, rows, CFG)
+        per_coin[sym] = trades
+        all_trades.extend(trades)
+        total_days = max(total_days, span)
+        print(f"{sym}: {len(rows)} candles, {len(trades)} trades")
+    all_trades.sort(key=lambda t: t["exit_ts"])
 
-            advice = result["trade_advice"]
+    print("\n" + "=" * 78)
+    print(line("ALL COINS", stats(all_trades)))
+    if all_trades and total_days > 0:
+        print(f"Signals per day (all coins): {len(all_trades) / total_days:.2f} "
+              f"| tested period ~{total_days:.0f} days")
+        st = stats(all_trades)
+        print(f"Gross avgR before costs: "
+              f"{st['gross'] / st['n']:+.2f} | longest losing streak: "
+              f"{st['streak']}")
+    print("-" * 78)
+    for sym, tr in per_coin.items():
+        print(line(sym, stats(tr)))
+    print("-" * 78)
+    for g in ("A", "B", "C"):
+        print(line(f"Grade {g}", stats([t for t in all_trades if t["grade"] == g])))
+    for side in ("BUY", "SELL"):
+        print(line(side, stats([t for t in all_trades if t["side"] == side])))
+    for setup in ("Pullback", "Breakout", "Retest"):
+        print(line(setup, stats([t for t in all_trades if t["setup"] == setup])))
+    print("=" * 78)
 
-            if advice == "ELIGIBLE":
-                advice_banner = (
-                    "\U0001f7e2\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                    "\u2705 TRADE ELIGIBLE\n"
-                    "\u0627\u0628\u062a\u062f\u0627\u0626\u06cc \u0634\u0631\u0627\u0626\u0637 \u067e\u0648\u0631\u06cc \u06c1\u06cc\u06ba\u061b \u0631\u0633\u06a9 \u0686\u06cc\u06a9 \u06a9\u0631\u06cc\u06ba\n"
-                    "\U0001f7e2\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                )
-            elif advice == "AVOID":
-                advice_banner = (
-                    "\U0001f534\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                    "\u26d4 TRADE AVOID\n"
-                    "\u06cc\u06c1 \u0679\u0631\u06cc\u0688 \u0641\u06cc \u0627\u0644\u062d\u0627\u0644 \u0646\u06c1 \u0644\u06cc\u06ba\n"
-                    "\U0001f534\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                )
-            else:
-                advice_banner = (
-                    "\U0001f7e1\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                    "\u23f3 NO TRADE \u2014 WAIT\n"
-                    "\U0001f7e1\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                )
+    if all_trades:
+        path = "backtest_trades.csv"
+        keys = ["symbol", "side", "setup", "grade", "score", "entry_ts",
+                "entry", "sl", "tp1", "tp2", "exit_ts", "reason",
+                "gross_R", "net_R", "hold"]
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=keys, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(all_trades)
+        print(f"Trades saved to {path}")
+    print("Note: a backtest is history, not a promise. Test other periods and "
+          "do not over-tune the settings to one period.")
 
-            messages.append(
-                f"**{symbol}**\n"
-                f"\U0001f4e1 Data: Bitget USDT Perpetual\n"
-                f"\U0001f4b0 Entry: {price:.8g}\n"
-                f"\U0001f4c8 Trend: {result['trend']}\n"
-                f"\U0001f550 1H Trend: {result['trend_1h']}\n"
-                f"\U0001f553 4H Trend: {result['trend_4h']}\n"
-                f"\U0001f4ca RSI: {result['rsi']:.2f}\n"
-                f"\u303d\ufe0f EMA20: {result['ema20']:.8g}\n"
-                f"\u303d\ufe0f EMA50: {result['ema50']:.8g}\n"
-                f"\U0001f4aa ADX: {result['adx']:.2f}\n"
-                f"\u2197\ufe0f +DI: {result['plus_di']:.2f} | \u2198\ufe0f -DI: {result['minus_di']:.2f}\n"
-                f"\U0001f4e6 Volume: {result['volume_ratio']:.2f}x\n"
-                f"\U0001f3af Signal: {signal}\n"
-                f"\U0001f9ea Paper Signal: {result['paper_signal']}\n"
-                f"\U0001f514 Breakout Watch: {result['breakout_watch']}\n"
-                f"\U0001f4af Signal Score: {result['signal_score']}/100\n"
-                f"\u2b50 Setup Quality: {result['entry_quality']} "
-                f"({result['entry_quality_score']}/100; not win probability)\n"
-                f"\U0001f4cc Setup: {result['entry_setup']}\n"
-                f"\U0001f56f\ufe0f Candle: {result['candle_status']}\n"
-                f"\U0001f3af Entry Timing: {result['entry_timing']}\n"
-                f"\U0001f4c9 Support: {support_text}\n"
-                f"\U0001f4c8 Resistance: {resistance_text}\n"
-                f"{levels}"
-                f"\u23f1\ufe0f Expected: {duration}\n"
-                f"\U0001f4dd Reason: {result['reason']}\n\n"
-                f"{advice_banner}"
-                f"\U0001f50e Advice Reason: "
-                f"{result['trade_advice_reason']}"
-            )
 
-            print(
-                f"{symbol}: {signal} | Score={result['signal_score']} "
-                f"| Quality={result['entry_quality_score']}"
-            )
-
-        except Exception as error:
-            print(f"{symbol} error: {error}")
-
-    if messages:
-        send_discord("\n\n".join(messages))
+# ===========================================================================
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--backtest", action="store_true")
+    ap.add_argument("--days", type=int, default=45)
+    ap.add_argument("--min-score", type=int)
+    ap.add_argument("--coins", type=str)
+    ap.add_argument("--no-discord", action="store_true")
+    args = ap.parse_args()
+    if args.min_score:
+        CFG["MIN_SCORE"] = args.min_score
+    coins = [c.strip().upper() for c in args.coins.split(",")] if args.coins else COINS
+    if args.backtest:
+        run_backtest(coins, args.days)
     else:
-        print("No results were generated.")
+        run_live(coins, send=not args.no_discord)
 
 
 if __name__ == "__main__":
