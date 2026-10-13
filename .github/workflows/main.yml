@@ -23,4 +23,5 @@ jobs:
       - name: Run bot
         env:
           DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
-        run: python main.py
+        
+        run: python main_combined_futures.py
