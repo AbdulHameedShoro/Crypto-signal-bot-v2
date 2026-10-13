@@ -1,5 +1,5 @@
 name: Bitget V4 Signals and Journal
-on:
+"on":
   workflow_dispatch:
   schedule:
     - cron: '2,17,32,47 * * * *'
