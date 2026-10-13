@@ -1,0 +1,1 @@
+trade_id,signal_id,symbol,side,exchange,entry_date_utc,entry_price,quantity,leverage,stop_loss,tp1,tp2,exit_date_utc,exit_price,fees_usdt,pnl_usdt,notes
