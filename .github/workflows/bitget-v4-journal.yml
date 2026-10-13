@@ -26,12 +26,22 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SEND_WATCH: 'true'
         run: python bitget_signal_bot_v4.py
+      
       - name: Save signal journal and de-duplication state
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add trade_journal/signals.csv v4_signal_state.json
+
+          if [ -f trade_journal/signals.csv ]; then
+            git add trade_journal/signals.csv
+          fi
+
+          if [ -f v4_signal_state.json ]; then
+            git add v4_signal_state.json
+          fi
+
           if ! git diff --cached --quiet; then
             git commit -m 'Update V4 signal journal [skip ci]'
             git push
           fi
+          
