@@ -265,24 +265,25 @@ def format_message(r):
     status = ('PAPER BUY CANDIDATE' if direction == 'BUY' else
               'PAPER SELL CANDIDATE' if direction == 'SELL' else 'WAIT')
     candle_time = datetime.fromtimestamp(
-        (r['candle_id']+TIMEFRAME_MS)/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+        (r['candle_id'] + TIMEFRAME_MS) / 1000, tz=timezone.utc
+    ).strftime('%Y-%m-%d %H:%M UTC')
     return (f'**{r["symbol"]}** | V5 RELAXED DEMO\n'
-            f'ðŸ“¡ Bitget USDT Perpetual | 15m CLOSED candle\n'
-            f'ðŸ•¯ï¸ Candle closed: {candle_time}\n'
-            f'ðŸŽ¯ Signal: **{status}**\n'
-            f'ðŸ’° Reference entry: {fmt(r["price"])}\n'
-            f'ðŸ›‘ Stop Loss: {fmt(r["stop"])}\n'
-            f'ðŸŽ¯ TP1: {fmt(r["tp1"])} | TP2: {fmt(r["tp2"])}\n'
-            f'ðŸ“Š BUY {r["buy"]} / SELL {r["sell"]} | Score {r["score"]}/100\n'
-            f'â­ Setup rating: {r["quality"]} (not win probability)\n'
-            f'ðŸ“ˆ RSI {r["rsi"]:.1f} | ADX {r["adx"]:.1f}\n'
-            f'â†— +DI {r["pdi"]:.1f} | â†˜ -DI {r["mdi"]:.1f}\n'
-            f'ã€½ EMA20 {fmt(r["ema20"])} | EMA50 {fmt(r["ema50"])}\n'
-            f'ðŸ“¦ Volume {r["volume"]:.2f}x\n'
-            f'ðŸ• 1H {r["trend1"]} | 4H {r["trend4"]}\n'
-            f'ðŸ“Œ Setup: {r["setup"]}\n'
-            f'ðŸ“ {r["reason"]}\n'
-            f'âš ï¸ DEMO ONLY. Entry is the closed candle price, not a guaranteed fill.')
+            f'\U0001f4e1 Bitget USDT Perpetual | 15m CLOSED candle\n'
+            f'\U0001f56f\ufe0f Candle closed: {candle_time}\n'
+            f'\U0001f3af Signal: **{status}**\n'
+            f'\U0001f4b0 Reference entry: {fmt(r["price"])}\n'
+            f'\U0001f6d1 Stop Loss: {fmt(r["stop"])}\n'
+            f'\U0001f3af TP1: {fmt(r["tp1"])} | TP2: {fmt(r["tp2"])}\n'
+            f'\U0001f4ca BUY {r["buy"]} / SELL {r["sell"]} | Score {r["score"]}/100\n'
+            f'\u2b50 Setup rating: {r["quality"]} (not win probability)\n'
+            f'\U0001f4c8 RSI {r["rsi"]:.1f} | ADX {r["adx"]:.1f}\n'
+            f'\u2197 +DI {r["pdi"]:.1f} | \u2198 -DI {r["mdi"]:.1f}\n'
+            f'\u303d EMA20 {fmt(r["ema20"])} | EMA50 {fmt(r["ema50"])}\n'
+            f'\U0001f4e6 Volume {r["volume"]:.2f}x\n'
+            f'\U0001f550 1H {r["trend1"]} | 4H {r["trend4"]}\n'
+            f'\U0001f4cc Setup: {r["setup"]}\n'
+            f'\U0001f4dd {r["reason"]}\n'
+            f'\u26a0\ufe0f DEMO ONLY. Entry is the closed candle price, not a guaranteed fill.')
 
 
 def send_discord(messages):
