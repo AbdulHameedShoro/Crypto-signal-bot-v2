@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""V5 relaxed, closed-candle, DEMO-ONLY Bitget USDT perpetual signal scanner. No exchange orders are placed. Normal workflow invokes this file every 15m. """
+"""Crypto Signal Bot - balanced Bitget USDT perpetual signal scanner. Uses fully closed 15-minute candles. Sends alerts; does not place orders. """
 import math
 import os
 import time
@@ -10,18 +10,18 @@ import requests
 WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
 BITGET_URL = 'https://api.bitget.com'
 COINS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT',
-         'XRPUSDT', 'DOGEUSDT', 'ZENUSDT', 'ZECUSDT']
+         'XRPUSDT', 'DOGEUSDT', 'ZENUSDT', 'ZECUSDT', 'CKBUSDT']
 TIMEFRAME = '15m'
 TIMEFRAME_MS = 15 * 60 * 1000
 CANDLE_LIMIT = 200
 TIMEOUT = 12
 
-# Change these gradually after evaluating paper-trade outcomes.
-MIN_SIGNAL_SCORE = 52
-MIN_SCORE_GAP = 12
+# Balanced baseline. Review losing trades before changing these values.
+MIN_SIGNAL_SCORE = 55
+MIN_SCORE_GAP = 10
 MIN_ADX = 15
 MIN_VOLUME_RATIO = 0.40
-MAX_ENTRY_DISTANCE_ATR = 2.6
+MAX_ENTRY_DISTANCE_ATR = 2.6  # caution threshold, not a signal veto
 STOP_ATR_MULTIPLIER = 1.5
 TP1_RR = 1.5
 TP2_RR = 2.5
@@ -195,18 +195,17 @@ def scan(symbol):
     buy = int(min(100, buy))
     sell = int(min(100, sell))
 
-    # HTF and RSI are ranking factors, NOT mandatory gates.
-    # Require some directional evidence; no forced trade every candle.
-    buy_ok = (buy >= MIN_SIGNAL_SCORE and buy >= sell+MIN_SCORE_GAP and
-              price > e20 and pdi > mdi and buy_continuation and
-              vol_ratio >= MIN_VOLUME_RATIO and
-              buy_distance <= MAX_ENTRY_DISTANCE_ATR and
-              strength < 85)
-    sell_ok = (sell >= MIN_SIGNAL_SCORE and sell >= buy+MIN_SCORE_GAP and
-               price < e20 and mdi > pdi and sell_continuation and
-               vol_ratio >= MIN_VOLUME_RATIO and
-               sell_distance <= MAX_ENTRY_DISTANCE_ATR and
-               strength > 15)
+    # Balanced signals: directional trend + DI + recent candle movement.
+    # RSI, higher timeframes and EMA distance affect rating/caution, not vetoes.
+    # No trade is forced when the directional evidence is absent.
+    buy_ok = (buy >= MIN_SIGNAL_SCORE and buy >= sell + MIN_SCORE_GAP and
+              price > e20 and pdi > mdi and
+              (buy_continuation or buy_pullback or buy_breakout) and
+              vol_ratio >= MIN_VOLUME_RATIO)
+    sell_ok = (sell >= MIN_SIGNAL_SCORE and sell >= buy + MIN_SCORE_GAP and
+               price < e20 and mdi > pdi and
+               (sell_continuation or sell_pullback or sell_breakdown) and
+               vol_ratio >= MIN_VOLUME_RATIO)
     direction = 'BUY' if buy_ok else 'SELL' if sell_ok else 'WAIT'
     score = buy if direction == 'BUY' else sell if direction == 'SELL' else max(buy, sell)
     setup = ('Breakout' if buy_breakout else 'Pullback' if buy_pullback else 'Trend continuation') if direction == 'BUY' else (
@@ -227,21 +226,27 @@ def scan(symbol):
             stop = tp1 = tp2 = None
             setup = 'Invalid risk levels'
     reasons = []
+    cautions = []
     if direction == 'WAIT':
         if vol_ratio < MIN_VOLUME_RATIO:
             reasons.append('Low volume')
-        if buy_distance > MAX_ENTRY_DISTANCE_ATR or sell_distance > MAX_ENTRY_DISTANCE_ATR:
-            reasons.append('Price stretched from EMA20')
-        if strength >= 85 or strength <= 15:
-            reasons.append('Extreme RSI')
         if not reasons:
-            reasons.append('Directional confirmation or score gap missing')
+            reasons.append('Trend, DI, momentum or score gap missing')
     else:
-        reasons.append('Closed-candle directional momentum')
-        if direction == 'BUY' and buy_breakout or direction == 'SELL' and sell_breakdown:
+        reasons.append('Closed-candle trend and DI momentum')
+        if (direction == 'BUY' and buy_breakout) or (direction == 'SELL' and sell_breakdown):
             reasons.append('Fresh structure break')
-        if direction == 'BUY' and buy_pullback or direction == 'SELL' and sell_pullback:
+        if (direction == 'BUY' and buy_pullback) or (direction == 'SELL' and sell_pullback):
             reasons.append('Pullback recovery')
+        distance = buy_distance if direction == 'BUY' else sell_distance
+        if distance > MAX_ENTRY_DISTANCE_ATR:
+            cautions.append('LATE ENTRY: far from EMA20')
+        if (direction == 'BUY' and strength >= 80) or (direction == 'SELL' and strength <= 20):
+            cautions.append('EXTREME RSI: reversal risk')
+        if adx < MIN_ADX:
+            cautions.append('Weak trend strength')
+        if vol_ratio < .75:
+            cautions.append('Below-average volume')
     print(f'DEBUG {symbol} | BUY={buy} SELL={sell} FINAL={direction} | '
           f'RSI={strength:.1f} ADX={adx:.1f} VOL={vol_ratio:.2f} '
           f'+DI={pdi:.1f} -DI={mdi:.1f} DIST_BUY={buy_distance:.2f} '
@@ -253,7 +258,8 @@ def scan(symbol):
             'atr': atr, 'rsi': strength, 'adx': adx, 'pdi': pdi,
             'mdi': mdi, 'ema20': e20, 'ema50': e50, 'volume': vol_ratio,
             'trend1': trend1, 'trend4': trend4, 'setup': setup,
-            'reason': '; '.join(reasons), 'candle_id': rows[-1][0]}
+            'reason': '; '.join(reasons), 'caution': '; '.join(cautions) if cautions else 'None',
+            'candle_id': rows[-1][0]}
 
 
 def fmt(value):
@@ -262,12 +268,12 @@ def fmt(value):
 
 def format_message(r):
     direction = r['direction']
-    status = ('PAPER BUY CANDIDATE' if direction == 'BUY' else
-              'PAPER SELL CANDIDATE' if direction == 'SELL' else 'WAIT')
+    status = ('BUY' if direction == 'BUY' else
+              'SELL' if direction == 'SELL' else 'WAIT')
     candle_time = datetime.fromtimestamp(
         (r['candle_id'] + TIMEFRAME_MS) / 1000, tz=timezone.utc
     ).strftime('%Y-%m-%d %H:%M UTC')
-    return (f'**{r["symbol"]}** | V5 RELAXED DEMO\n'
+    return (f'**{r["symbol"]}** | CRYPTO SIGNAL BOT\n'
             f'\U0001f4e1 Bitget USDT Perpetual | 15m CLOSED candle\n'
             f'\U0001f56f\ufe0f Candle closed: {candle_time}\n'
             f'\U0001f3af Signal: **{status}**\n'
@@ -283,7 +289,8 @@ def format_message(r):
             f'\U0001f550 1H {r["trend1"]} | 4H {r["trend4"]}\n'
             f'\U0001f4cc Setup: {r["setup"]}\n'
             f'\U0001f4dd {r["reason"]}\n'
-            f'\u26a0\ufe0f DEMO ONLY. Entry is the closed candle price, not a guaranteed fill.')
+            f'\u26a0\ufe0f Entry caution: {r["caution"]}\n'
+            f'\u26a0\ufe0f Signal based on closed candle; reference entry is not a guaranteed fill.')
 
 
 def send_discord(messages):
@@ -298,10 +305,10 @@ def send_discord(messages):
 
 
 def main():
-    print('Crypto Signal Bot V5 - RELAXED PAPER TEST - CLOSED CANDLES')
+    print('Crypto Signal Bot - BALANCED - CLOSED CANDLES')
     mode = os.getenv('BOT_MODE', 'normal').strip().lower()
     if mode != 'normal':
-        print(f'BOT_MODE={mode}: V5 runs normal closed-candle reports only; fast mode disabled')
+        print(f'BOT_MODE={mode}: normal closed-candle reports only; fast mode disabled')
         return
     messages = []
     for symbol in COINS:
