@@ -64,9 +64,10 @@ CONFIG = {
 
 BITGET_API_URL = "https://api.bitget.com"
 
+import pandas as pd
 
 class IndicatorEngine:
-@staticmethod
+    @staticmethod
     def calculate_ema(series: pd.Series, period: int) -> pd.Series:
         return series.ewm(span=period, adjust=False).mean()
 
