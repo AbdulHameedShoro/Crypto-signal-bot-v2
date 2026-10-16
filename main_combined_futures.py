@@ -90,6 +90,65 @@ def higher_trend(df):
     return "NEUTRAL"
 
 
+
+def smc_structure(d, side, atr):
+    """Confirmed swing structure and recent, unfilled three-candle FVG zones."""
+    bullish = side == "BUY"
+    highs, lows = [], []
+    for i in range(3, len(d) - 3):
+        window = d.iloc[i-3:i+4]
+        if d.high.iloc[i] == window.high.max() and (window.high == d.high.iloc[i]).sum() == 1:
+            highs.append((i, float(d.high.iloc[i])))
+        if d.low.iloc[i] == window.low.min() and (window.low == d.low.iloc[i]).sum() == 1:
+            lows.append((i, float(d.low.iloc[i])))
+    swings = highs if bullish else lows
+    opposite = lows if bullish else highs
+    last_level = swings[-1][1] if swings else None
+    prev_close = float(d.close.iloc[-2])
+    close = float(d.close.iloc[-1])
+    bos = bool(last_level is not None and
+               (prev_close <= last_level < close if bullish else prev_close >= last_level > close))
+    # CHoCH is a break against the previous confirmed swing direction.
+    prior_trend = "UNKNOWN"
+    if len(highs) >= 2 and len(lows) >= 2:
+        if highs[-1][1] > highs[-2][1] and lows[-1][1] > lows[-2][1]:
+            prior_trend = "BULLISH"
+        elif highs[-1][1] < highs[-2][1] and lows[-1][1] < lows[-2][1]:
+            prior_trend = "BEARISH"
+    choch = bos and prior_trend == ("BEARISH" if bullish else "BULLISH")
+    # Wick through a prior confirmed swing, followed by close back inside.
+    sweep = False
+    if opposite:
+        level = opposite[-1][1]
+        sweep = bool((float(d.low.iloc[-1]) < level < close) if bullish
+                     else (float(d.high.iloc[-1]) > level > close))
+    zones = []
+    for i in range(max(2, len(d)-35), len(d)):
+        a, c = d.iloc[i-2], d.iloc[i]
+        lo, hi = (float(a.high), float(c.low)) if bullish else (float(c.high), float(a.low))
+        if hi - lo < 0.12 * atr:
+            continue
+        # FVG must have survived all subsequent completed candles.
+        later = d.iloc[i+1:]
+        invalid = (later.low <= lo).any() if bullish else (later.high >= hi).any()
+        if not invalid:
+            zones.append((lo, hi))
+    zone = zones[-1] if zones else None
+    fvg_near = bool(zone and zone[0] - 0.5*atr <= close <= zone[1] + 0.5*atr)
+    # Proxy order block: last opposing candle before a strong displacement.
+    order_block = None
+    for i in range(len(d)-2, max(2, len(d)-25), -1):
+        bar, following = d.iloc[i], d.iloc[i+1]
+        opposing = bar.close < bar.open if bullish else bar.close > bar.open
+        displacement = (following.close - following.open) if bullish else (following.open - following.close)
+        if opposing and displacement >= 0.8*atr:
+            order_block = (float(bar.low), float(bar.high))
+            break
+    ob_near = bool(order_block and order_block[0]-0.35*atr <= close <= order_block[1]+0.35*atr)
+    return {"bos": bos, "choch": choch, "sweep": sweep,
+            "fvg": zone, "fvg_near": fvg_near, "order_block": order_block,
+            "ob_near": ob_near, "swing_level": last_level, "prior_trend": prior_trend}
+
 def evaluate(symbol, base, trend_1h="UNKNOWN", trend_4h="UNKNOWN"):
     d = indicators(base)
     c, p = d.iloc[-1], d.iloc[-2]
@@ -138,6 +197,17 @@ def evaluate(symbol, base, trend_1h="UNKNOWN", trend_4h="UNKNOWN"):
             add(7, "1H trend agrees")
         if trend_4h == target:
             add(3, "4H trend agrees")
+        smc = smc_structure(d, side, atr)
+        if smc["bos"]:
+            add(8, "Confirmed swing BOS")
+        if smc["choch"]:
+            add(6, "Potential CHoCH")
+        if smc["sweep"]:
+            add(7, "Swing liquidity sweep and reclaim")
+        if smc["fvg_near"]:
+            add(6, "Price near active FVG")
+        if smc["ob_near"]:
+            add(5, "Price near displacement order block")
         # Scores are confluence points, NOT a statistical probability of success.
         blockers = []
         if vol_ratio < 0.20:
@@ -147,7 +217,7 @@ def evaluate(symbol, base, trend_1h="UNKNOWN", trend_4h="UNKNOWN"):
         # Avoid chasing a move that has already stretched far from the fast EMA.
         if abs(price - float(c.ema20)) > 2.0 * atr:
             blockers.append("Entry too extended from EMA20")
-        result[side] = {"score": min(score, 100), "reasons": reasons, "blockers": blockers}
+        result[side] = {"score": min(score, 100), "reasons": reasons, "blockers": blockers, "smc": smc}
     side = max(result, key=lambda k: result[k]["score"])
     best, other = result[side], result["SELL" if side == "BUY" else "BUY"]
     status = "WAIT"
@@ -170,7 +240,7 @@ def evaluate(symbol, base, trend_1h="UNKNOWN", trend_4h="UNKNOWN"):
             "volume_ratio": round(vol_ratio, 2), "trend_1h": trend_1h,
             "trend_4h": trend_4h, "candle_utc": datetime.fromtimestamp(
                 int(c.timestamp) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
-            "reasons": best["reasons"], "blockers": best["blockers"]}
+            "reasons": best["reasons"], "blockers": best["blockers"], "smc": best["smc"]}
 
 
 def load_state():
@@ -198,11 +268,19 @@ def send_discord(sig):
     color = 0x10B981 if status == "BUY" else 0xF43F5E if status == "SELL" else 0xF59E0B
     fields = [
         {"name": "Closed candle UTC", "value": sig["candle_utc"], "inline": True},
-        {"name": "Setup quality (not win probability)", "value": f"{sig['score']}/100", "inline": True},
+        {"name": "Setup quality", "value": f"{sig['score']}/100", "inline": True},
         {"name": "15m / 1H / 4H", "value": f"15m bias {sig['bias']} | {sig['trend_1h']} | {sig['trend_4h']}", "inline": False},
         {"name": "RSI / Volume", "value": f"{sig['rsi']} / {sig['volume_ratio']}x", "inline": True},
         {"name": "Reasons", "value": "\n".join("• " + x for x in sig["reasons"])[:1000] or "None", "inline": False},
     ]
+    smc = sig["smc"]
+    def zone_text(zone):
+        return f"{zone[0]:.6g} - {zone[1]:.6g}" if zone else "Not detected"
+    fields.append({"name": "SMC structure (15m)", "value":
+        f"BOS: {'YES' if smc['bos'] else 'NO'} | CHoCH: {'YES' if smc['choch'] else 'NO'} | Sweep: {'YES' if smc['sweep'] else 'NO'}\n"
+        f"Swing level: {smc['swing_level'] if smc['swing_level'] is not None else 'N/A'}\n"
+        f"FVG: {zone_text(smc['fvg'])} | Near: {smc['fvg_near']}\n"
+        f"Order block (proxy): {zone_text(smc['order_block'])} | Near: {smc['ob_near']}", "inline": False})
     if status in ("BUY", "SELL"):
         fields.insert(2, {"name": "Entry / SL / TP1 / TP2 / TP3", "value":
             f"{sig['price']} / {sig['sl']} / {sig['tp1']} / {sig['tp2']} / {sig['tp3']}\n"
