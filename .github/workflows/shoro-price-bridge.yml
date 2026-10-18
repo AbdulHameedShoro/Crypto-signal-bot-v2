@@ -1,0 +1,23 @@
+name: SHORO Price Bridge
+"on":
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+permissions:
+  contents: read
+jobs:
+  update-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requests
+        run: python -m pip install requests
+      - name: Send Bitget Futures prices to SHORO
+        env:
+          SHORO_WORKER_URL: ${{ secrets.SHORO_WORKER_URL }}
+          SHORO_BRIDGE_SECRET: ${{ secrets.SHORO_BRIDGE_SECRET }}
+        run: python shoro_price_bridge.py
