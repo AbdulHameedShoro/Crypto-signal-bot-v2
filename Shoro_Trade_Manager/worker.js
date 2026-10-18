@@ -512,7 +512,93 @@ return new Response(
 );
 }
 }
+if (
+  request.method === "POST" &&
+  url.pathname === "/shoro-price-update"
+) {
+  const auth = request.headers.get("Authorization");
 
+  if (
+    !env.SHORO_BRIDGE_SECRET ||
+    auth !== `Bearer ${env.SHORO_BRIDGE_SECRET}`
+  ) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (!env.SHORO_DB) {
+    return new Response("Database binding missing", {
+      status: 500
+    });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+
+  const allowedSymbols = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+    "XRPUSDT", "DOGEUSDT", "ZENUSDT", "ZECUSDT"
+  ];
+
+  if (
+    !body.prices ||
+    typeof body.prices !== "object" ||
+    Array.isArray(body.prices)
+  ) {
+    return new Response("Invalid prices", { status: 400 });
+  }
+
+  const entries = Object.entries(body.prices);
+
+  if (
+    entries.length === 0 ||
+    entries.some(([symbol, price]) =>
+      !allowedSymbols.includes(symbol) ||
+      typeof price !== "number" ||
+      !Number.isFinite(price) ||
+      price <= 0
+    )
+  ) {
+    return new Response("Invalid price data", {
+      status: 400
+    });
+  }
+
+  try {
+    await env.SHORO_DB.prepare(`
+      CREATE TABLE IF NOT EXISTS shoro_prices (
+        symbol TEXT PRIMARY KEY,
+        price REAL NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `).run();
+
+    const updatedAt = new Date().toISOString();
+
+    for (const [symbol, price] of entries) {
+      await env.SHORO_DB.prepare(`
+        INSERT INTO shoro_prices (symbol, price, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+          price = excluded.price,
+          updated_at = excluded.updated_at
+      `).bind(symbol, price, updatedAt).run();
+    }
+
+    return Response.json({
+      success: true,
+      updated: entries.length
+    });
+  } catch (error) {
+    console.error("Price update failed:", error.message);
+    return new Response("Price database update failed", {
+      status: 500
+    });
+  }
+}
 if (request.method !== "POST") {
 return new Response("Method Not Allowed", {
 status: 405
