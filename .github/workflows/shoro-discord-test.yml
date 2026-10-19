@@ -1,4 +1,3 @@
-
 name: SHORO Discord Test
 
 on:
@@ -13,16 +12,15 @@ jobs:
     timeout-minutes: 2
 
     steps:
-      - name: Send Discord connection test
+      - name: Send test signal with trade buttons
         shell: bash
         env:
-          WORKER_URL: https://shoro-trade-monitor.ahshoro.workers.dev
-          BRIDGE_SECRET: ${{ secrets.SHORO_BRIDGE_SECRET }}
+          WORKER_URL: https://shoro-bitget-trade-manager.ahshoro.workers.dev
+          SIGNAL_SECRET: ${{ secrets.SHORO_SIGNAL_SECRET }}
         run: |
           set +x
-
-          if [ -z "$BRIDGE_SECRET" ]; then
-            echo "ERROR: GitHub secret SHORO_BRIDGE_SECRET is missing or empty."
+          if [ -z "$SIGNAL_SECRET" ]; then
+            echo "ERROR: GitHub secret SHORO_SIGNAL_SECRET is missing or empty."
             exit 1
           fi
 
@@ -31,8 +29,10 @@ jobs:
             --write-out "%{http_code}" \
             --max-time 30 \
             --request POST \
-            --url "$WORKER_URL/shoro-discord-test" \
-            --header "X-SHORO-TEST-SECRET: $BRIDGE_SECRET")
+            --url "$WORKER_URL/shoro-signal" \
+            --header "X-SHORO-SIGNAL-SECRET: $SIGNAL_SECRET" \
+            --header "Content-Type: application/json" \
+            --data '{"pair":"TESTUSDT","side":"BUY","entry":100,"stop_loss":90,"tp1":110,"tp2":120,"tp3":130}')
 
           echo "HTTP_STATUS=$STATUS"
           echo "RESPONSE:"
@@ -40,15 +40,20 @@ jobs:
           echo
 
           if [ "$STATUS" != "200" ]; then
-            echo "ERROR: Worker test endpoint did not return HTTP 200."
+            echo "ERROR: Signal endpoint did not return HTTP 200."
             exit 1
           fi
 
-          if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' response.json ||
-             ! grep -q '"discordStatus"[[:space:]]*:[[:space:]]*200' response.json; then
-            echo "ERROR: Discord test was not confirmed successful."
-            exit 1
-          fi
-
-          echo "Worker reports that Discord accepted the test message."
-          
+          python - <<'PY'
+          import json, sys
+          with open('response.json', encoding='utf-8') as f:
+              data = json.load(f)
+          if data.get('ok') is not True:
+              sys.exit('ERROR: Worker did not confirm success.')
+          if data.get('duplicate') is True:
+              print('Duplicate test signal: no new Discord message was sent.')
+          elif data.get('discordStatus') == 200:
+              print('Discord API accepted the test signal message.')
+          else:
+              sys.exit('ERROR: Discord message delivery not confirmed.')
+          PY
