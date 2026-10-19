@@ -1,0 +1,47 @@
+name: SHORO Signal Generator
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "2,17,32,47 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shoro-signal-generator
+  cancel-in-progress: false
+
+jobs:
+  generate-signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Generate and send SHORO signals
+        env:
+          SHORO_SIGNAL_SECRET: ${{ secrets.SHORO_SIGNAL_SECRET }}
+        run: python shoro_signal_generator.py
+
+      - name: Save signal de-duplication state
+        if: always()
+        run: |
+          if [ -f shoro_signal_state.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add shoro_signal_state.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Update SHORO signal state [skip ci]"
+              git push
+            fi
+          fi
