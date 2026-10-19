@@ -1,0 +1,54 @@
+
+name: SHORO Discord Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discord-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Send Discord connection test
+        shell: bash
+        env:
+          WORKER_URL: https://shoro-trade-monitor.ahshoro.workers.dev
+          BRIDGE_SECRET: ${{ secrets.SHORO_BRIDGE_SECRET }}
+        run: |
+          set +x
+
+          if [ -z "$BRIDGE_SECRET" ]; then
+            echo "ERROR: GitHub secret SHORO_BRIDGE_SECRET is missing or empty."
+            exit 1
+          fi
+
+          STATUS=$(curl --silent --show-error \
+            --output response.json \
+            --write-out "%{http_code}" \
+            --max-time 30 \
+            --request POST \
+            --url "$WORKER_URL/shoro-discord-test" \
+            --header "X-SHORO-TEST-SECRET: $BRIDGE_SECRET")
+
+          echo "HTTP_STATUS=$STATUS"
+          echo "RESPONSE:"
+          cat response.json
+          echo
+
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Worker test endpoint did not return HTTP 200."
+            exit 1
+          fi
+
+          if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' response.json ||
+             ! grep -q '"discordStatus"[[:space:]]*:[[:space:]]*200' response.json; then
+            echo "ERROR: Discord test was not confirmed successful."
+            exit 1
+          fi
+
+          echo "Worker reports that Discord accepted the test message."
+          
