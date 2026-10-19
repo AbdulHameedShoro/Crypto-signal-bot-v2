@@ -1,3 +1,36 @@
 {
-  "sent": {}
+  "sent": {
+    "BNBUSDT:1792444500000:BUY": {
+      "candle_timestamp": 1792444500000,
+      "pair": "BNBUSDT",
+      "score": 66,
+      "sent_at": "2026-10-19T21:34:27.662059+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVFRVC18-689D8E"
+    },
+    "BTCUSDT:1792444500000:SELL": {
+      "candle_timestamp": 1792444500000,
+      "pair": "BTCUSDT",
+      "score": 60,
+      "sent_at": "2026-10-19T21:34:24.098783+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVFRV9I8-8A4C92"
+    },
+    "DOGEUSDT:1792444500000:BUY": {
+      "candle_timestamp": 1792444500000,
+      "pair": "DOGEUSDT",
+      "score": 61,
+      "sent_at": "2026-10-19T21:34:29.192744+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVFRVDLA-6342E5"
+    },
+    "ETHUSDT:1792444500000:SELL": {
+      "candle_timestamp": 1792444500000,
+      "pair": "ETHUSDT",
+      "score": 61,
+      "sent_at": "2026-10-19T21:34:25.691781+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVFRVAIO-6C5411"
+    }
+  }
 }
