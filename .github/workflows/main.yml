@@ -24,4 +24,4 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: "${{ secrets.DISCORD_WEBHOOK_URL }}"
         
-        run: python main_combined_futures.py
+        run: python shoro_price_bridge.py
