@@ -184,6 +184,14 @@
       "side": "BUY",
       "trade_id": "SH-MVGP12P5-53377D"
     },
+    "ZECUSDT:1792518300000:BUY": {
+      "candle_timestamp": 1792518300000,
+      "pair": "ZECUSDT",
+      "score": 73,
+      "sent_at": "2026-10-20T18:00:19.755784+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVGZNTA5-7BBC22"
+    },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "ZENUSDT",
