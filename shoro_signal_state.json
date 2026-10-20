@@ -8,6 +8,14 @@
       "side": "BUY",
       "trade_id": "SH-MVFRVC18-689D8E"
     },
+    "BNBUSDT:1792500300000:BUY": {
+      "candle_timestamp": 1792500300000,
+      "pair": "BNBUSDT",
+      "score": 61,
+      "sent_at": "2026-10-20T13:02:38.660549+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVGP0ZND-E2B2AB"
+    },
     "BTCUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "BTCUSDT",
@@ -39,6 +47,14 @@
       "sent_at": "2026-10-20T07:39:42.359891+00:00",
       "side": "SELL",
       "trade_id": "SH-MVGDHOVQ-20605E"
+    },
+    "BTCUSDT:1792500300000:SELL": {
+      "candle_timestamp": 1792500300000,
+      "pair": "BTCUSDT",
+      "score": 61,
+      "sent_at": "2026-10-20T13:02:35.644610+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVGP0XBQ-2194D6"
     },
     "DOGEUSDT:1792444500000:BUY": {
       "candle_timestamp": 1792444500000,
@@ -159,6 +175,14 @@
       "sent_at": "2026-10-20T07:39:53.181943+00:00",
       "side": "SELL",
       "trade_id": "SH-MVGDHX85-03B294"
+    },
+    "ZECUSDT:1792500300000:BUY": {
+      "candle_timestamp": 1792500300000,
+      "pair": "ZECUSDT",
+      "score": 69,
+      "sent_at": "2026-10-20T13:02:42.557615+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVGP12P5-53377D"
     },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
