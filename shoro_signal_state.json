@@ -56,6 +56,14 @@
       "side": "SELL",
       "trade_id": "SH-MVGP0XBQ-2194D6"
     },
+    "BTCUSDT:1792530000000:BUY": {
+      "candle_timestamp": 1792530000000,
+      "pair": "BTCUSDT",
+      "score": 75,
+      "sent_at": "2026-10-20T21:23:34.611732+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVH6X6R4-B8536D"
+    },
     "DOGEUSDT:1792444500000:BUY": {
       "candle_timestamp": 1792444500000,
       "pair": "DOGEUSDT",
@@ -88,6 +96,14 @@
       "side": "SELL",
       "trade_id": "SH-MVGDHUOI-755BDF"
     },
+    "DOGEUSDT:1792530000000:BUY": {
+      "candle_timestamp": 1792530000000,
+      "pair": "DOGEUSDT",
+      "score": 66,
+      "sent_at": "2026-10-20T21:23:42.832994+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVH6XDBB-E938BF"
+    },
     "ETHUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "ETHUSDT",
@@ -111,6 +127,14 @@
       "sent_at": "2026-10-20T07:39:44.320744+00:00",
       "side": "SELL",
       "trade_id": "SH-MVGDHQ5G-7DD3AA"
+    },
+    "ETHUSDT:1792530000000:BUY": {
+      "candle_timestamp": 1792530000000,
+      "pair": "ETHUSDT",
+      "score": 67,
+      "sent_at": "2026-10-20T21:23:36.450670+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVH6X8EI-C3FADD"
     },
     "SOLUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
@@ -136,6 +160,14 @@
       "side": "SELL",
       "trade_id": "SH-MVGDHRNJ-1DB92C"
     },
+    "SOLUSDT:1792530000000:BUY": {
+      "candle_timestamp": 1792530000000,
+      "pair": "SOLUSDT",
+      "score": 80,
+      "sent_at": "2026-10-20T21:23:38.484783+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVH6X9V5-A5832B"
+    },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "XRPUSDT",
@@ -159,6 +191,14 @@
       "sent_at": "2026-10-20T07:39:48.231881+00:00",
       "side": "SELL",
       "trade_id": "SH-MVGDHTEM-053309"
+    },
+    "XRPUSDT:1792530000000:BUY": {
+      "candle_timestamp": 1792530000000,
+      "pair": "XRPUSDT",
+      "score": 73,
+      "sent_at": "2026-10-20T21:23:40.965698+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVH6XBUC-2B9D4E"
     },
     "ZECUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
