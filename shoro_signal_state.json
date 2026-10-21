@@ -24,6 +24,14 @@
       "side": "BUY",
       "trade_id": "SH-MVHCO31N-E2EFB8"
     },
+    "BNBUSDT:1792575000000:BUY": {
+      "candle_timestamp": 1792575000000,
+      "pair": "BNBUSDT",
+      "score": 66,
+      "sent_at": "2026-10-21T09:47:21.092158+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHXHP3H-B517AD"
+    },
     "BTCUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "BTCUSDT",
@@ -80,6 +88,14 @@
       "side": "BUY",
       "trade_id": "SH-MVHCO0SW-1EC82F"
     },
+    "BTCUSDT:1792575000000:BUY": {
+      "candle_timestamp": 1792575000000,
+      "pair": "BTCUSDT",
+      "score": 66,
+      "sent_at": "2026-10-21T09:47:17.222350+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHXHM3U-38E63D"
+    },
     "DOGEUSDT:1792444500000:BUY": {
       "candle_timestamp": 1792444500000,
       "pair": "DOGEUSDT",
@@ -120,6 +136,14 @@
       "side": "BUY",
       "trade_id": "SH-MVH6XDBB-E938BF"
     },
+    "DOGEUSDT:1792575000000:BUY": {
+      "candle_timestamp": 1792575000000,
+      "pair": "DOGEUSDT",
+      "score": 66,
+      "sent_at": "2026-10-21T09:47:23.070260+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHXHQFP-1CB2FC"
+    },
     "ETHUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "ETHUSDT",
@@ -152,6 +176,14 @@
       "side": "BUY",
       "trade_id": "SH-MVH6X8EI-C3FADD"
     },
+    "ETHUSDT:1792575000000:BUY": {
+      "candle_timestamp": 1792575000000,
+      "pair": "ETHUSDT",
+      "score": 69,
+      "sent_at": "2026-10-21T09:47:18.503249+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHXHN4S-9170DF"
+    },
     "SOLUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "SOLUSDT",
@@ -183,6 +215,14 @@
       "sent_at": "2026-10-20T21:23:38.484783+00:00",
       "side": "BUY",
       "trade_id": "SH-MVH6X9V5-A5832B"
+    },
+    "SOLUSDT:1792575000000:BUY": {
+      "candle_timestamp": 1792575000000,
+      "pair": "SOLUSDT",
+      "score": 66,
+      "sent_at": "2026-10-21T09:47:19.769517+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHXHO3V-036C0B"
     },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
