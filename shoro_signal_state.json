@@ -104,6 +104,14 @@
       "side": "BUY",
       "trade_id": "SH-MVI809ST-0F4C01"
     },
+    "BTCUSDT:1792619100000:BUY": {
+      "candle_timestamp": 1792619100000,
+      "pair": "BTCUSDT",
+      "score": 68,
+      "sent_at": "2026-10-21T22:07:29.229000+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVINXIBE-7869DF"
+    },
     "DOGEUSDT:1792444500000:BUY": {
       "candle_timestamp": 1792444500000,
       "pair": "DOGEUSDT",
