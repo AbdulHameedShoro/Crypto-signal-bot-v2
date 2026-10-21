@@ -224,6 +224,14 @@
       "side": "BUY",
       "trade_id": "SH-MVHCO48O-7C65C0"
     },
+    "XRPUSDT:1792557000000:BUY": {
+      "candle_timestamp": 1792557000000,
+      "pair": "XRPUSDT",
+      "score": 60,
+      "sent_at": "2026-10-21T04:56:26.008471+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVHN3K8S-0AF5C1"
+    },
     "ZECUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "ZECUSDT",
