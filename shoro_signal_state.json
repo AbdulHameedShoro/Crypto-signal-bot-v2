@@ -248,6 +248,14 @@
       "side": "BUY",
       "trade_id": "SH-MVI80D1T-0AF03F"
     },
+    "SOLUSDT:1792607400000:BUY": {
+      "candle_timestamp": 1792607400000,
+      "pair": "SOLUSDT",
+      "score": 61,
+      "sent_at": "2026-10-21T18:58:52.432751+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVIH6YB5-393039"
+    },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "XRPUSDT",
@@ -343,6 +351,14 @@
       "sent_at": "2026-10-21T14:41:55.400416+00:00",
       "side": "BUY",
       "trade_id": "SH-MVI80IKY-6FC4C0"
+    },
+    "ZECUSDT:1792607400000:BUY": {
+      "candle_timestamp": 1792607400000,
+      "pair": "ZECUSDT",
+      "score": 69,
+      "sent_at": "2026-10-21T18:58:56.614703+00:00",
+      "side": "BUY",
+      "trade_id": "SH-MVIH71OJ-825FC7"
     },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
