@@ -160,6 +160,14 @@
       "side": "BUY",
       "trade_id": "SH-MVHXHQFP-1CB2FC"
     },
+    "DOGEUSDT:1792628100000:SELL": {
+      "candle_timestamp": 1792628100000,
+      "pair": "DOGEUSDT",
+      "score": 71,
+      "sent_at": "2026-10-22T00:42:43.282431+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVITH58A-EC0352"
+    },
     "ETHUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "ETHUSDT",
