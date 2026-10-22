@@ -176,6 +176,14 @@
       "side": "SELL",
       "trade_id": "SH-MVITH58A-EC0352"
     },
+    "DOGEUSDT:1792682100000:SELL": {
+      "candle_timestamp": 1792682100000,
+      "pair": "DOGEUSDT",
+      "score": 69,
+      "sent_at": "2026-10-22T15:32:09.824804+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJP8Z7G-83A907"
+    },
     "ETHUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "ETHUSDT",
@@ -231,6 +239,14 @@
       "sent_at": "2026-10-22T05:26:07.188825+00:00",
       "side": "SELL",
       "trade_id": "SH-MVJ3LLHZ-7D806F"
+    },
+    "ETHUSDT:1792682100000:SELL": {
+      "candle_timestamp": 1792682100000,
+      "pair": "ETHUSDT",
+      "score": 61,
+      "sent_at": "2026-10-22T15:32:05.011490+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJP8VFE-6EEAEE"
     },
     "SOLUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
@@ -295,6 +311,14 @@
       "sent_at": "2026-10-22T05:26:08.914418+00:00",
       "side": "SELL",
       "trade_id": "SH-MVJ3LMZ4-4E8A80"
+    },
+    "SOLUSDT:1792682100000:SELL": {
+      "candle_timestamp": 1792682100000,
+      "pair": "SOLUSDT",
+      "score": 61,
+      "sent_at": "2026-10-22T15:32:06.869207+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJP8WUP-0FD20F"
     },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
@@ -416,6 +440,14 @@
       "side": "SELL",
       "trade_id": "SH-MVJ3LRX1-F099CE"
     },
+    "ZECUSDT:1792682100000:SELL": {
+      "candle_timestamp": 1792682100000,
+      "pair": "ZECUSDT",
+      "score": 62,
+      "sent_at": "2026-10-22T15:32:13.199192+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJP91TO-986F4A"
+    },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "ZENUSDT",
@@ -447,6 +479,14 @@
       "sent_at": "2026-10-21T14:41:53.586188+00:00",
       "side": "BUY",
       "trade_id": "SH-MVI80H67-F8AE29"
+    },
+    "ZENUSDT:1792682100000:SELL": {
+      "candle_timestamp": 1792682100000,
+      "pair": "ZENUSDT",
+      "score": 61,
+      "sent_at": "2026-10-22T15:32:11.541621+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJP90JR-A5C1AF"
     }
   }
 }
