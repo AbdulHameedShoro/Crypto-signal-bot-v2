@@ -32,6 +32,14 @@
       "side": "BUY",
       "trade_id": "SH-MVHXHP3H-B517AD"
     },
+    "BNBUSDT:1792645200000:SELL": {
+      "candle_timestamp": 1792645200000,
+      "pair": "BNBUSDT",
+      "score": 84,
+      "sent_at": "2026-10-22T05:26:10.701852+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJ3LOAT-E5114E"
+    },
     "BTCUSDT:1792444500000:SELL": {
       "candle_timestamp": 1792444500000,
       "pair": "BTCUSDT",
@@ -216,6 +224,14 @@
       "side": "BUY",
       "trade_id": "SH-MVI80BGI-11C4F0"
     },
+    "ETHUSDT:1792645200000:SELL": {
+      "candle_timestamp": 1792645200000,
+      "pair": "ETHUSDT",
+      "score": 61,
+      "sent_at": "2026-10-22T05:26:07.188825+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJ3LLHZ-7D806F"
+    },
     "SOLUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "SOLUSDT",
@@ -271,6 +287,14 @@
       "sent_at": "2026-10-21T18:58:52.432751+00:00",
       "side": "BUY",
       "trade_id": "SH-MVIH6YB5-393039"
+    },
+    "SOLUSDT:1792645200000:SELL": {
+      "candle_timestamp": 1792645200000,
+      "pair": "SOLUSDT",
+      "score": 62,
+      "sent_at": "2026-10-22T05:26:08.914418+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJ3LMZ4-4E8A80"
     },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
@@ -328,6 +352,14 @@
       "side": "BUY",
       "trade_id": "SH-MVI80F1V-142755"
     },
+    "XRPUSDT:1792645200000:SELL": {
+      "candle_timestamp": 1792645200000,
+      "pair": "XRPUSDT",
+      "score": 66,
+      "sent_at": "2026-10-22T05:26:12.404171+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJ3LPOH-CDFC9D"
+    },
     "ZECUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "ZECUSDT",
@@ -375,6 +407,14 @@
       "sent_at": "2026-10-21T18:58:56.614703+00:00",
       "side": "BUY",
       "trade_id": "SH-MVIH71OJ-825FC7"
+    },
+    "ZECUSDT:1792645200000:SELL": {
+      "candle_timestamp": 1792645200000,
+      "pair": "ZECUSDT",
+      "score": 76,
+      "sent_at": "2026-10-22T05:26:15.373732+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVJ3LRX1-F099CE"
     },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
