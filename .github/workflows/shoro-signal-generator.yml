@@ -3,7 +3,7 @@ name: SHORO Signal Generator
 on:
   workflow_dispatch:
   schedule:
-    - cron: "2,22,37,52 * * * *"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   generate-signals:
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
