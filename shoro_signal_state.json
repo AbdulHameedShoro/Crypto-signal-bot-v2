@@ -264,6 +264,14 @@
       "side": "SELL",
       "trade_id": "SH-MVK4JFMY-5E475F"
     },
+    "ETHUSDT:1792750500000:SELL": {
+      "candle_timestamp": 1792750500000,
+      "pair": "ETHUSDT",
+      "score": 63,
+      "sent_at": "2026-10-23T10:33:40.529494+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVKU0YVR-9C21FC"
+    },
     "SOLUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "SOLUSDT",
@@ -360,6 +368,14 @@
       "side": "BUY",
       "trade_id": "SH-MVKJV7W7-398802"
     },
+    "SOLUSDT:1792750500000:SELL": {
+      "candle_timestamp": 1792750500000,
+      "pair": "SOLUSDT",
+      "score": 63,
+      "sent_at": "2026-10-23T10:33:42.243669+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVKU10AF-A47B2D"
+    },
     "XRPUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "XRPUSDT",
@@ -440,6 +456,14 @@
       "side": "BUY",
       "trade_id": "SH-MVKJV9HV-067BAE"
     },
+    "XRPUSDT:1792750500000:SELL": {
+      "candle_timestamp": 1792750500000,
+      "pair": "XRPUSDT",
+      "score": 63,
+      "sent_at": "2026-10-23T10:33:44.516200+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVKU122W-8A6291"
+    },
     "ZECUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
       "pair": "ZECUSDT",
@@ -511,6 +535,14 @@
       "sent_at": "2026-10-22T19:23:44.404124+00:00",
       "side": "SELL",
       "trade_id": "SH-MVJXIRN4-871DD3"
+    },
+    "ZECUSDT:1792750500000:SELL": {
+      "candle_timestamp": 1792750500000,
+      "pair": "ZECUSDT",
+      "score": 73,
+      "sent_at": "2026-10-23T10:33:47.397736+00:00",
+      "side": "SELL",
+      "trade_id": "SH-MVKU1478-040505"
     },
     "ZENUSDT:1792447200000:BUY": {
       "candle_timestamp": 1792447200000,
