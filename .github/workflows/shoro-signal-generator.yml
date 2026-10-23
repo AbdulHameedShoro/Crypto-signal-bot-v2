@@ -6,7 +6,7 @@ on:
     - cron: "2,22,37,52 * * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: shoro-signal-generator
@@ -14,8 +14,10 @@ concurrency:
 
 jobs:
   generate-signals:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,16 +34,3 @@ jobs:
         env:
           SHORO_SIGNAL_SECRET: ${{ secrets.SHORO_SIGNAL_SECRET }}
         run: python shoro_signal_generator.py
-
-      - name: Save signal de-duplication state
-        if: always()
-        run: |
-          if [ -f shoro_signal_state.json ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add shoro_signal_state.json
-            if ! git diff --cached --quiet; then
-              git commit -m "Update SHORO signal state [skip ci]"
-              git push
-            fi
-          fi
