@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-
+  actions: read
 concurrency:
   group: shoro-signal-generator
   cancel-in-progress: false
