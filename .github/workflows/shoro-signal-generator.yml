@@ -1,20 +1,25 @@
-name: Shoro Signal Generator
+name: SHORO Signal Generator
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
+  schedule:
+    - cron: "3/5 * * * *"
 
 permissions:
-  actions: read
   contents: read
+  actions: read
+
+concurrency:
+  group: shoro-signal-generator
+  cancel-in-progress: false
 
 jobs:
-  signal-generator:
+  generate-signals:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Check recent successful run
+      - name: Check recent successful scheduled run
         id: guard
         if: github.event_name == 'schedule'
         env:
@@ -36,7 +41,7 @@ jobs:
 
             if [ "$age" -lt 1500 ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "A successful scheduled run exists within 25 minutes."
+              echo "Skipping: a scheduled run succeeded within the last 25 minutes."
               exit 0
             fi
           fi
@@ -51,15 +56,14 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install dependency
         if: steps.guard.outputs.skip != 'true'
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas numpy ccxt requests
+        run: python -m pip install --disable-pip-version-check requests
 
-      - name: Run signal generator
+      - name: Generate and send SHORO signals
         if: steps.guard.outputs.skip != 'true'
-        run: |
-          python shoro_signal_generator.py
+        env:
+          SHORO_SIGNAL_SECRET: ${{ secrets.SHORO_SIGNAL_SECRET }}
+        run: python shoro_signal_generator.py
