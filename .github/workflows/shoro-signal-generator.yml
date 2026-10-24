@@ -1,35 +1,65 @@
-name: SHORO Signal Generator
+name: Shoro Signal Generator
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "3/5 * * * *"
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
-  contents: read
   actions: read
-concurrency:
-  group: shoro-signal-generator
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  generate-signals:
+  signal-generator:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
 
     steps:
+      - name: Check recent successful run
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow shoro-signal-generator.yml \
+            --event schedule \
+            --status success \
+            --limit 1 \
+            --json updatedAt \
+            --jq '.[0].updatedAt // empty')
+
+          if [ -n "$last" ]; then
+            last_ts=$(date -d "$last" +%s)
+            now_ts=$(date +%s)
+            age=$((now_ts - last_ts))
+
+            if [ "$age" -lt 1500 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "A successful scheduled run exists within 25 minutes."
+              exit 0
+            fi
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      - name: Install dependency
-        run: python -m pip install --disable-pip-version-check requests
+      - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy ccxt requests
 
-      - name: Generate and send SHORO signals
-        env:
-          SHORO_SIGNAL_SECRET: ${{ secrets.SHORO_SIGNAL_SECRET }}
-        run: python shoro_signal_generator.py
+      - name: Run signal generator
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python shoro_signal_generator.py
