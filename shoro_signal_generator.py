@@ -185,15 +185,26 @@ def evaluate(symbol: str, candles: list[dict[str, float | int]], trend_1h: str, 
             score += points
             reasons.append(f"+{points} {reason}")
 
-        if (trend_1h == "BULLISH") == bullish:
+        # 1H trend: reward only a confirmed matching trend.
+        if trend_1h == "UNKNOWN" or trend_1h == "NEUTRAL":
+            pass
+        elif (trend_1h == "BULLISH" and bullish) or (
+            trend_1h == "BEARISH" and not bullish
+        ):
             add(12, "1H trend agrees")
         else:
             add(-12, "1H trend conflicts")
 
-        if (trend_4h == "BULLISH") == bullish:
+        # 4H trend: reward only a confirmed matching trend.
+        if trend_4h == "UNKNOWN" or trend_4h == "NEUTRAL":
+            pass
+        elif (trend_4h == "BULLISH" and bullish) or (
+            trend_4h == "BEARISH" and not bullish
+        ):
             add(8, "4H trend agrees")
         else:
             add(-10, "4H trend conflicts")
+            
 
         if (ind["ema20"][i] > ind["ema50"][i]) == bullish:
             add(15, "EMA20/50 trend")
@@ -267,7 +278,17 @@ def evaluate(symbol: str, candles: list[dict[str, float | int]], trend_1h: str, 
 
     side = max(results, key=lambda s: results[s]["score"])
     best, other = results[side], results["SELL" if side == "BUY" else "BUY"]
-
+    print(
+        f"{symbol}: score audit | "
+        f"BUY={results['BUY']['score']} "
+        f"SELL={results['SELL']['score']} "
+        f"best={side} "
+        f"gap={best['score'] - other['score']} "
+        f"required_score={MIN_TRADE_SCORE} "
+        f"required_gap={MIN_SCORE_GAP} "
+        f"blockers={best['blockers']} "
+        f"reasons={best['reasons']}"
+    )
     if best["score"] < MIN_TRADE_SCORE:
         print(f"{symbol}: no trade | BUY={results['BUY']['score']} SELL={results['SELL']['score']} "
               f"RSI={rsi_value:.1f} ADX={adx:.1f} vol={vol_ratio:.2f}x blockers={best['blockers']}")
