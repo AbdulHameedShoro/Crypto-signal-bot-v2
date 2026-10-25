@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SHORO Bitget Balanced Signal Generator — closed-candle USDT perpetuals. Diagnostic version: - Uses closed candles only. - Uses weighted confluence and the existing strict signal gates. - Logs per-side score components, gate failures, and per-symbol outcomes. - Sends BUY/SELL signal notifications to the existing Worker only. - NEVER places exchange orders and does not enable live trading. Requires: requests GitHub Actions secret: SHORO_SIGNAL_SECRET Optional environment overrides (defaults unchanged): SHORO_MIN_TRADE_SCORE=72 SHORO_MIN_SCORE_GAP=12 """
+"""SHORO Bitget Balanced Signal Generator — experimental relaxed thresholds. Closed-candle-only informational signal scanner. Uses weighted confluence and diagnostic logs. Sends qualifying BUY/SELL signals to the existing Worker. NEVER places exchange orders; live trading remains disabled. Required secret: SHORO_SIGNAL_SECRET Optional overrides: SHORO_MIN_TRADE_SCORE=32, SHORO_MIN_SCORE_GAP=8 Requires: requests """
 from __future__ import annotations
 
 import json
@@ -19,58 +19,51 @@ PRODUCT_TYPE = "USDT-FUTURES"
 TIMEFRAMES = {"15m": 900, "1H": 3600, "4H": 14400}
 CANDLE_LIMIT = 120
 
-# Keep the existing strict thresholds until a historical backtest supports changes.
-MIN_TRADE_SCORE = int(os.getenv("SHORO_MIN_TRADE_SCORE", "72"))
-MIN_SCORE_GAP = int(os.getenv("SHORO_MIN_SCORE_GAP", "12"))
-MIN_VOLUME_RATIO = 1.00  # Informational scoring threshold; do not silently loosen blockers.
-EXTENSION_ATR_LIMIT = 1.75
+# Experimental settings: higher signal frequency is not proof of profitability.
+MIN_TRADE_SCORE = int(os.getenv("SHORO_MIN_TRADE_SCORE", "32"))
+MIN_SCORE_GAP = int(os.getenv("SHORO_MIN_SCORE_GAP", "8"))
+MIN_VOLUME_RATIO = 0.80
+EXTENSION_ATR_LIMIT = 2.00
 ATR_STOP_MULTIPLIER = 1.5
 
 SESSION = requests.Session()
 SESSION.headers.update({
-    "User-Agent": "SHORO-Balanced-Signal-Generator/2.2-diagnostics",
+    "User-Agent": "SHORO-Balanced-Signal-Generator/2.3-relaxed-experiment",
     "Accept": "application/json",
 })
 
 
 def fetch_closed_candles(symbol: str, timeframe: str = "15m") -> list[dict[str, float | int]]:
-    params = {
-        "symbol": symbol,
-        "productType": PRODUCT_TYPE,
-        "granularity": timeframe,
-        "limit": str(CANDLE_LIMIT),
-    }
+    params = {"symbol": symbol, "productType": PRODUCT_TYPE,
+              "granularity": timeframe, "limit": str(CANDLE_LIMIT)}
     response = SESSION.get(f"{API}/api/v2/mix/market/candles", params=params, timeout=20)
     response.raise_for_status()
     body = response.json()
     if body.get("code") != "00000":
         raise RuntimeError(f"Bitget API error for {symbol} {timeframe}: {body.get('msg', body)}")
 
-    rows = body.get("data") or []
     seconds = TIMEFRAMES[timeframe]
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     candles: list[dict[str, float | int]] = []
-
-    for row in rows:
+    for row in body.get("data") or []:
         if len(row) < 6:
             continue
         ts = int(float(row[0]))
-        # Exclude the still-open candle.
         if ts + seconds * 1000 > now_ms:
+            continue  # exclude still-open candle
+        candle = {"timestamp": ts, "open": float(row[1]), "high": float(row[2]),
+                  "low": float(row[3]), "close": float(row[4]), "volume": float(row[5])}
+        values = [float(candle[k]) for k in ("open", "high", "low", "close", "volume")]
+        if not all(math.isfinite(v) for v in values):
             continue
-        candle = {
-            "timestamp": ts,
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": float(row[5]),
-        }
-        if not all(math.isfinite(float(candle[k])) for k in ("open", "high", "low", "close", "volume")):
+        op, hi, lo, cl, vol = values
+        if min(op, hi, lo, cl) <= 0 or vol < 0 or hi < max(op, cl, lo) or lo > min(op, cl, hi):
             continue
         candles.append(candle)
 
-    candles.sort(key=lambda c: int(c["timestamp"]))
+    # Deduplicate timestamps and sort chronologically.
+    unique = {int(c["timestamp"]): c for c in candles}
+    candles = sorted(unique.values(), key=lambda c: int(c["timestamp"]))
     if len(candles) < 70:
         raise RuntimeError(f"Insufficient closed {timeframe} candles for {symbol}: {len(candles)}")
     return candles
@@ -90,14 +83,11 @@ def rsi(values: list[float], period: int = 14) -> list[float]:
     out = [50.0] * len(values)
     if len(values) <= period:
         return out
-
-    gains: list[float] = []
-    losses: list[float] = []
+    gains, losses = [], []
     for i in range(1, len(values)):
         delta = values[i] - values[i - 1]
         gains.append(max(delta, 0.0))
         losses.append(max(-delta, 0.0))
-
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
@@ -121,32 +111,21 @@ def indicators(candles: list[dict[str, float | int]]) -> dict[str, list[float]]:
     lows = [float(c["low"]) for c in candles]
     closes = [float(c["close"]) for c in candles]
     volumes = [float(c["volume"]) for c in candles]
-    true_ranges: list[float] = []
-    plus_dm: list[float] = []
-    minus_dm: list[float] = []
-
+    true_ranges, plus_dm, minus_dm = [], [], []
     for i in range(len(candles)):
         if i == 0:
             true_ranges.append(highs[i] - lows[i])
             plus_dm.append(0.0)
             minus_dm.append(0.0)
             continue
-        true_ranges.append(max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        ))
-        up = highs[i] - highs[i - 1]
-        down = lows[i - 1] - lows[i]
+        true_ranges.append(max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]),
+                               abs(lows[i] - closes[i - 1])))
+        up, down = highs[i] - highs[i - 1], lows[i - 1] - lows[i]
         plus_dm.append(up if up > down and up > 0 else 0.0)
         minus_dm.append(down if down > up and down > 0 else 0.0)
-
     atr = ema(true_ranges, 14)
     sm_plus, sm_minus = ema(plus_dm, 14), ema(minus_dm, 14)
-    plus_di: list[float] = []
-    minus_di: list[float] = []
-    dx: list[float] = []
-
+    plus_di, minus_di, dx = [], [], []
     for i in range(len(candles)):
         pdi = 100.0 * sm_plus[i] / atr[i] if atr[i] > 0 else 0.0
         mdi = 100.0 * sm_minus[i] / atr[i] if atr[i] > 0 else 0.0
@@ -154,20 +133,11 @@ def indicators(candles: list[dict[str, float | int]]) -> dict[str, list[float]]:
         minus_di.append(mdi)
         denom = pdi + mdi
         dx.append(100.0 * abs(pdi - mdi) / denom if denom else 0.0)
-
     macd = [a - b for a, b in zip(ema(closes, 12), ema(closes, 26))]
     macd_signal = ema(macd, 9)
-    return {
-        "ema20": ema(closes, 20),
-        "ema50": ema(closes, 50),
-        "rsi": rsi(closes),
-        "atr": atr,
-        "adx": ema(dx, 14),
-        "plus_di": plus_di,
-        "minus_di": minus_di,
-        "macd_hist": [a - b for a, b in zip(macd, macd_signal)],
-        "volumes": volumes,
-    }
+    return {"ema20": ema(closes, 20), "ema50": ema(closes, 50), "rsi": rsi(closes),
+            "atr": atr, "adx": ema(dx, 14), "plus_di": plus_di, "minus_di": minus_di,
+            "macd_hist": [a - b for a, b in zip(macd, macd_signal)], "volumes": volumes}
 
 
 def higher_trend(candles: list[dict[str, float | int]]) -> str:
@@ -181,18 +151,14 @@ def higher_trend(candles: list[dict[str, float | int]]) -> str:
     return "NEUTRAL"
 
 
-def evaluate( symbol: str, candles: list[dict[str, float | int]], trend_1h: str, trend_4h: str, ) -> dict[str, Any] | None:
+def evaluate(symbol: str, candles: list[dict[str, float | int]], trend_1h: str, trend_4h: str) -> dict[str, Any] | None:
     ind = indicators(candles)
     i = len(candles) - 1
     c = candles[i]
-    close = float(c["close"])
-    atr = ind["atr"][i]
-
+    close, atr = float(c["close"]), ind["atr"][i]
     if not (math.isfinite(atr) and atr > 0 and close > 0):
         raise ValueError("Invalid ATR/price")
-
-    rsi_value = ind["rsi"][i]
-    adx = ind["adx"][i]
+    rsi_value, adx = ind["rsi"][i], ind["adx"][i]
     avg_vols = ind["volumes"][max(0, i - 20):i]
     avg_volume = sum(avg_vols) / len(avg_vols) if avg_vols else 0.0
     vol_ratio = ind["volumes"][i] / avg_volume if avg_volume > 0 else 0.0
@@ -202,21 +168,16 @@ def evaluate( symbol: str, candles: list[dict[str, float | int]], trend_1h: str,
     body_ratio = abs(close - float(c["open"])) / candle_range
     close_position = (close - float(c["low"])) / candle_range
     price_ema_gap = abs(close - ind["ema20"][i]) / atr
-
     results: dict[str, dict[str, Any]] = {}
 
     for side in ("BUY", "SELL"):
         bullish = side == "BUY"
-        score = 0
-        reasons: list[str] = []
-        components: list[dict[str, Any]] = []
+        score, reasons, components = 0, [], []
 
         def add(points: int, reason: str) -> None:
             nonlocal score
             score += points
-            # Format negative points as "-10", not the confusing "+-10".
-            signed = f"+{points}" if points >= 0 else str(points)
-            reasons.append(f"{signed} {reason}")
+            reasons.append(f"{'+' if points >= 0 else ''}{points} {reason}")
             components.append({"points": points, "reason": reason})
 
         if trend_1h in ("UNKNOWN", "NEUTRAL"):
@@ -233,38 +194,35 @@ def evaluate( symbol: str, candles: list[dict[str, float | int]], trend_1h: str,
         else:
             add(-10, "4H trend conflicts")
 
-        if (ind["ema20"][i] > ind["ema50"][i]) == bullish:
-            add(15, "EMA20/50 trend")
-        else:
-            add(-15, "EMA20/50 conflicts")
+        add(15 if ((ind["ema20"][i] > ind["ema50"][i]) == bullish) else -15,
+            "EMA20/50 trend" if ((ind["ema20"][i] > ind["ema50"][i]) == bullish) else "EMA20/50 conflicts")
 
-        if (ind["macd_hist"][i] > 0) == bullish:
+        macd_hist = ind["macd_hist"][i]
+        if (bullish and macd_hist > 0) or (not bullish and macd_hist < 0):
             add(10, "MACD supports")
         else:
-            add(-10, "MACD conflicts")
+            add(-10, "MACD conflicts or is neutral")
 
         if bullish:
-            if 48 <= rsi_value <= 70:
-                add(12, f"bullish RSI ({rsi_value:.1f})")
-            else:
-                add(-8, f"RSI not good ({rsi_value:.1f})")
+            add(12 if 45 <= rsi_value <= 72 else -8,
+                f"bullish RSI ({rsi_value:.1f})" if 45 <= rsi_value <= 72 else f"RSI not good ({rsi_value:.1f})")
         else:
-            if 30 <= rsi_value <= 52:
-                add(12, f"bearish RSI ({rsi_value:.1f})")
-            else:
-                add(-8, f"RSI not good ({rsi_value:.1f})")
+            add(12 if 28 <= rsi_value <= 55 else -8,
+                f"bearish RSI ({rsi_value:.1f})" if 28 <= rsi_value <= 55 else f"RSI not good ({rsi_value:.1f})")
 
         directional_candle = close > float(c["open"]) if bullish else close < float(c["open"])
-        strong_close = close_position >= 0.65 if bullish else close_position <= 0.35
-        if directional_candle and body_ratio >= 0.45 and strong_close:
+        strong_close = close_position >= 0.60 if bullish else close_position <= 0.40
+        if directional_candle and body_ratio >= 0.40 and strong_close:
             add(12, "strong close")
         else:
-            add(-10, "weak close")
+            add(-8, "weak close")
 
         if vol_ratio >= 1.30:
             add(10, f"strong volume {vol_ratio:.2f}x")
         elif vol_ratio >= MIN_VOLUME_RATIO:
             add(6, f"adequate volume {vol_ratio:.2f}x")
+        elif vol_ratio >= 0.60:
+            add(0, f"moderate-low volume {vol_ratio:.2f}x (no points)")
         else:
             add(-12, f"weak volume {vol_ratio:.2f}x")
 
@@ -273,22 +231,15 @@ def evaluate( symbol: str, candles: list[dict[str, float | int]], trend_1h: str,
         elif adx >= 15:
             add(3, f"moderate ADX {adx:.1f}")
         else:
-            add(-12, f"ADX too weak {adx:.1f}")
+            add(-8, f"ADX low {adx:.1f}")
 
-        di_agrees = (
-            ind["plus_di"][i] >= ind["minus_di"][i]
-            if bullish
-            else ind["minus_di"][i] >= ind["plus_di"][i]
-        )
-        if di_agrees:
-            add(6, "DI direction agrees")
-        else:
-            add(-8, "DI direction conflicts")
+        di_agrees = ind["plus_di"][i] >= ind["minus_di"][i] if bullish else ind["minus_di"][i] >= ind["plus_di"][i]
+        add(6 if di_agrees else -6, "DI direction agrees" if di_agrees else "DI direction conflicts")
 
         if price_ema_gap > EXTENSION_ATR_LIMIT:
             add(-15, f"too far from EMA20 ({price_ema_gap:.2f} ATR)")
         elif price_ema_gap > 1.25:
-            add(-8, f"slightly extended ({price_ema_gap:.2f} ATR)")
+            add(-5, f"slightly extended ({price_ema_gap:.2f} ATR)")
         else:
             add(0, f"EMA20 distance acceptable ({price_ema_gap:.2f} ATR)")
 
@@ -297,85 +248,56 @@ def evaluate( symbol: str, candles: list[dict[str, float | int]], trend_1h: str,
         elif not bullish and close < recent_low:
             add(8, "breaks recent low")
         else:
-            add(-8, "not strong structure break")
+            add(-5, "not strong structure break")
 
-        blockers: list[str] = []
-        if vol_ratio < 0.80:
-            blockers.append("volume too weak (<0.80x)")
+        blockers = []
+        if vol_ratio < 0.60:
+            blockers.append("volume too weak (<0.60x)")
         if price_ema_gap > EXTENSION_ATR_LIMIT:
             blockers.append(f"price too extended (>{EXTENSION_ATR_LIMIT:.2f} ATR)")
         opposing = "BEARISH" if bullish else "BULLISH"
         if trend_1h == opposing and trend_4h == opposing:
             blockers.append("macro trend opposes signal")
+        results[side] = {"raw_score": score, "score": max(score, 0), "reasons": reasons,
+                         "components": components, "blockers": blockers}
 
-        results[side] = {
-            "raw_score": score,
-            "score": max(score, 0),
-            "reasons": reasons,
-            "components": components,
-            "blockers": blockers,
-        }
-
-    # The theoretical maximum with all positive conditions is 101 points.
-    # This is a diagnostic reference, not a change to the threshold.
     theoretical_max = 101
     side = max(results, key=lambda s: results[s]["score"])
-    best = results[side]
-    other = results["SELL" if side == "BUY" else "BUY"]
+    best, other = results[side], results["SELL" if side == "BUY" else "BUY"]
     gap = best["score"] - other["score"]
-
-    print(
-        f"{symbol}: SCORE_AUDIT | BUY={results['BUY']['score']} "
-        f"(raw={results['BUY']['raw_score']}) "
-        f"SELL={results['SELL']['score']} (raw={results['SELL']['raw_score']}) "
-        f"best={side} gap={gap} required_score={MIN_TRADE_SCORE} "
-        f"required_gap={MIN_SCORE_GAP} theoretical_max={theoretical_max} "
-        f"best_blockers={best['blockers']}"
-    )
-    print(
-        f"{symbol}: METRICS | close={close:.8g} RSI={rsi_value:.2f} ADX={adx:.2f} "
-        f"volume_ratio={vol_ratio:.2f}x volume_scoring_threshold={MIN_VOLUME_RATIO:.2f}x "
-        f"price_ema_gap={price_ema_gap:.2f}ATR trend_1h={trend_1h} trend_4h={trend_4h}"
-    )
+    print(f"{symbol}: SCORE_AUDIT | BUY={results['BUY']['score']} (raw={results['BUY']['raw_score']}) "
+          f"SELL={results['SELL']['score']} (raw={results['SELL']['raw_score']}) best={side} gap={gap} "
+          f"required_score={MIN_TRADE_SCORE} required_gap={MIN_SCORE_GAP} theoretical_max={theoretical_max} "
+          f"best_blockers={best['blockers']}")
+    print(f"{symbol}: METRICS | close={close:.8g} RSI={rsi_value:.2f} ADX={adx:.2f} "
+          f"volume_ratio={vol_ratio:.2f}x volume_scoring_threshold={MIN_VOLUME_RATIO:.2f}x "
+          f"price_ema_gap={price_ema_gap:.2f}ATR trend_1h={trend_1h} trend_4h={trend_4h}")
     print(f"{symbol}: BUY_COMPONENTS | " + " ; ".join(results["BUY"]["reasons"]))
     print(f"{symbol}: SELL_COMPONENTS | " + " ; ".join(results["SELL"]["reasons"]))
 
-    rejection_reasons: list[str] = []
+    rejection_reasons = []
     if best["score"] < MIN_TRADE_SCORE:
-        rejection_reasons.append(
-            f"score_below_threshold ({best['score']} < {MIN_TRADE_SCORE})"
-        )
+        rejection_reasons.append(f"score_below_threshold ({best['score']} < {MIN_TRADE_SCORE})")
     if gap < MIN_SCORE_GAP:
-        rejection_reasons.append(
-            f"score_gap_below_threshold ({gap} < {MIN_SCORE_GAP})"
-        )
+        rejection_reasons.append(f"score_gap_below_threshold ({gap} < {MIN_SCORE_GAP})")
     if best["blockers"]:
         rejection_reasons.extend(best["blockers"])
-
     if rejection_reasons:
         print(f"{symbol}: REJECTED | side={side} reasons={rejection_reasons}")
         return None
 
     direction = 1 if side == "BUY" else -1
     risk = ATR_STOP_MULTIPLIER * atr
-    stop_loss = close - direction * risk
     signal = {
-        "pair": symbol,
-        "side": side,
-        "entry": round(close, 10),
-        "stop_loss": round(stop_loss, 10),
+        "pair": symbol, "side": side, "entry": round(close, 10),
+        "stop_loss": round(close - direction * risk, 10),
         "tp1": round(close + direction * risk, 10),
         "tp2": round(close + direction * 2 * risk, 10),
         "tp3": round(close + direction * 3 * risk, 10),
-        "_candle_timestamp": int(c["timestamp"]),
-        "_score": best["score"],
-        "_opposite_score": other["score"],
-        "_rsi": round(rsi_value, 2),
-        "_adx": round(adx, 2),
-        "_volume_ratio": round(vol_ratio, 2),
-        "_trend_1h": trend_1h,
-        "_trend_4h": trend_4h,
-        "_reasons": best["reasons"],
+        "_candle_timestamp": int(c["timestamp"]), "_score": best["score"],
+        "_opposite_score": other["score"], "_rsi": round(rsi_value, 2),
+        "_adx": round(adx, 2), "_volume_ratio": round(vol_ratio, 2),
+        "_trend_1h": trend_1h, "_trend_4h": trend_4h, "_reasons": best["reasons"],
     }
     print(f"{symbol}: SIGNAL_QUALIFIED | side={side} score={best['score']} gap={gap}")
     return signal
@@ -404,22 +326,14 @@ def main() -> int:
     secret = os.environ.get("SHORO_SIGNAL_SECRET", "").strip()
     if not secret:
         raise SystemExit("Missing GitHub Actions secret: SHORO_SIGNAL_SECRET")
-
-    print(
-        "CONFIG | mode=SIGNAL_ONLY exchange_orders=DISABLED "
-        f"symbols={len(SYMBOLS)} timeframes=15m,1H,4H "
-        f"min_score={MIN_TRADE_SCORE} min_gap={MIN_SCORE_GAP} "
-        f"volume_blocker_below=0.80x extension_blocker_above={EXTENSION_ATR_LIMIT:.2f}ATR"
-    )
+    print("CONFIG | mode=SIGNAL_ONLY exchange_orders=DISABLED "
+          f"symbols={len(SYMBOLS)} timeframes=15m,1H,4H min_score={MIN_TRADE_SCORE} "
+          f"min_gap={MIN_SCORE_GAP} volume_scoring_threshold={MIN_VOLUME_RATIO:.2f}x "
+          f"volume_blocker_below=0.60x extension_blocker_above={EXTENSION_ATR_LIMIT:.2f}ATR")
 
     state = load_state()
     sent = state.setdefault("sent", {})
-    sent_count = 0
-    qualified_count = 0
-    rejected_count = 0
-    error_count = 0
-    duplicate_count = 0
-
+    sent_count = qualified_count = rejected_count = error_count = duplicate_count = 0
     for symbol in SYMBOLS:
         try:
             base = fetch_closed_candles(symbol, "15m")
@@ -430,13 +344,11 @@ def main() -> int:
                 except (requests.RequestException, RuntimeError, ValueError, KeyError, IndexError) as exc:
                     print(f"{symbol}: TREND_UNAVAILABLE | timeframe={timeframe} error={exc}; using UNKNOWN")
                     trends[timeframe] = "UNKNOWN"
-
             signal = evaluate(symbol, base, trends["1H"], trends["4H"])
             if not signal:
                 rejected_count += 1
                 continue
             qualified_count += 1
-
             candle_ts = int(signal.pop("_candle_timestamp"))
             key = f"{symbol}:{candle_ts}:{signal['side']}"
             if key in sent:
@@ -444,40 +356,22 @@ def main() -> int:
                 print(f"{symbol}: DUPLICATE | already sent for closed candle timestamp={candle_ts}")
                 continue
 
-            detail_keys = (
-                "_score", "_opposite_score", "_rsi", "_adx",
-                "_volume_ratio", "_trend_1h", "_trend_4h", "_reasons",
-            )
+            detail_keys = ("_score", "_opposite_score", "_rsi", "_adx", "_volume_ratio",
+                           "_trend_1h", "_trend_4h", "_reasons")
             details = {k: signal.pop(k) for k in detail_keys}
-            response = SESSION.post(
-                WORKER_URL,
-                json=signal,
-                headers={
-                    "X-SHORO-SIGNAL-SECRET": secret,
-                    "Content-Type": "application/json",
-                },
-                timeout=25,
-            )
-            print(
-                f"{symbol}: WORKER_RESPONSE | http_status={response.status_code} "
-                f"details={details} body={response.text[:500]}"
-            )
+            response = SESSION.post(WORKER_URL, json=signal, headers={
+                "X-SHORO-SIGNAL-SECRET": secret, "Content-Type": "application/json",
+            }, timeout=25)
+            print(f"{symbol}: WORKER_RESPONSE | http_status={response.status_code} "
+                  f"details={details} body={response.text[:500]}")
             response.raise_for_status()
             result = response.json()
             if result.get("ok") is not True or result.get("discordStatus") != 200:
-                raise RuntimeError(
-                    f"Worker did not confirm Discord delivery for {symbol}: "
-                    f"ok={result.get('ok')} discordStatus={result.get('discordStatus')}"
-                )
-
-            sent[key] = {
-                "sent_at": datetime.now(timezone.utc).isoformat(),
-                "pair": symbol,
-                "side": signal["side"],
-                "candle_timestamp": candle_ts,
-                "trade_id": result.get("trade_id"),
-                "score": details["_score"],
-            }
+                raise RuntimeError(f"Worker did not confirm Discord delivery for {symbol}: "
+                                   f"ok={result.get('ok')} discordStatus={result.get('discordStatus')}")
+            sent[key] = {"sent_at": datetime.now(timezone.utc).isoformat(), "pair": symbol,
+                         "side": signal["side"], "candle_timestamp": candle_ts,
+                         "trade_id": result.get("trade_id"), "score": details["_score"]}
             sent_count += 1
             print(f"{symbol}: DELIVERY_CONFIRMED | side={signal['side']} score={details['_score']}")
         except Exception as exc:
@@ -487,20 +381,14 @@ def main() -> int:
     if len(sent) > 1000:
         newest = sorted(sent.items(), key=lambda item: item[1].get("candle_timestamp", 0))[-500:]
         state["sent"] = dict(newest)
-
     try:
         save_state(state)
     except OSError as exc:
         error_count += 1
         print(f"STATE_ERROR | could not save state: {exc}")
-
-    print(
-        "RUN_SUMMARY | "
-        f"symbols={len(SYMBOLS)} qualified={qualified_count} rejected={rejected_count} "
-        f"duplicates={duplicate_count} delivery_confirmed={sent_count} errors={error_count}"
-    )
+    print(f"RUN_SUMMARY | symbols={len(SYMBOLS)} qualified={qualified_count} rejected={rejected_count} "
+          f"duplicates={duplicate_count} delivery_confirmed={sent_count} errors={error_count}")
     print(f"Completed. New signals delivered: {sent_count}")
-    # Keep prior behavior: per-symbol failures are logged, the workflow finishes and summary remains visible.
     return 0
 
 
